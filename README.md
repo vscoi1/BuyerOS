@@ -71,7 +71,7 @@ npm run dev
 ## Deploy on Vercel with Supabase
 
 1. Import this repo in Vercel.
-2. Keep project root at repo root (this monorepo is configured via `vercel.json`).
+2. Set project root to `apps/web`.
 3. Add env vars in Vercel Project Settings:
 
 - `DATABASE_URL` (recommended)
@@ -80,7 +80,7 @@ npm run dev
 4. Deploy.
 
 Notes:
-- Install command is pinned to `npm ci --include=dev` via `vercel.json` so CSS/tooling build deps are always present.
+- Install command is pinned to `npm ci --include=dev` in `apps/web/vercel.json` so CSS/tooling build deps are always present.
 - Without DB env vars, Vercel runs demo/in-memory mode.
 - With Supabase DB env vars, data persists across deploys and restarts.
 
