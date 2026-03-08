@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "@/lib/trpc/server";
+import { writeAuditLog } from "@/server/audit";
 import { emitEvent } from "@/server/events";
 import {
   createProperty,
@@ -16,7 +17,19 @@ import {
 } from "@/server/validators";
 
 export const propertyRouter = router({
-  create: protectedProcedure.input(propertyCreateInput).mutation(async ({ ctx, input }) => createProperty(ctx.session, input)),
+  create: protectedProcedure.input(propertyCreateInput).mutation(async ({ ctx, input }) => {
+    const property = await createProperty(ctx.session, input);
+
+    writeAuditLog({
+      organizationId: ctx.session.organizationId,
+      actorId: ctx.session.user.id,
+      action: "property.create",
+      entityType: "property",
+      entityId: property.id,
+    });
+
+    return property;
+  }),
 
   update: protectedProcedure
     .input(
@@ -29,6 +42,15 @@ export const propertyRouter = router({
       if (!updated) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
+
+      writeAuditLog({
+        organizationId: ctx.session.organizationId,
+        actorId: ctx.session.user.id,
+        action: "property.update",
+        entityType: "property",
+        entityId: updated.id,
+      });
+
       return updated;
     }),
 
@@ -58,6 +80,14 @@ export const propertyRouter = router({
       if (!updatedProperty) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
+
+      writeAuditLog({
+        organizationId: ctx.session.organizationId,
+        actorId: ctx.session.user.id,
+        action: "property.score.recompute",
+        entityType: "property",
+        entityId: updatedProperty.id,
+      });
 
       emitEvent("property.scored", {
         organizationId: ctx.session.organizationId,

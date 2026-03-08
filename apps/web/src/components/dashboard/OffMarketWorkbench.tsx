@@ -1,12 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 
 export function OffMarketWorkbench() {
+  const searchParams = useSearchParams();
+  const requestedSubmissionId = searchParams.get("submissionId");
   const utils = trpc.useUtils();
   const submissionsQuery = trpc.offMarket.list.useQuery();
-  const [selectedSubmission, setSelectedSubmission] = useState<string>("off_market_demo_1");
+  const [manualSelectedSubmission, setManualSelectedSubmission] = useState<string>("");
+  const selectedSubmission = useMemo(() => {
+    const submissions = submissionsQuery.data ?? [];
+    if (submissions.length === 0) {
+      return "";
+    }
+
+    if (
+      requestedSubmissionId &&
+      submissions.some((submission) => submission.id === requestedSubmissionId)
+    ) {
+      return requestedSubmissionId;
+    }
+
+    if (
+      manualSelectedSubmission &&
+      submissions.some((submission) => submission.id === manualSelectedSubmission)
+    ) {
+      return manualSelectedSubmission;
+    }
+
+    return submissions[0]?.id ?? "";
+  }, [manualSelectedSubmission, requestedSubmissionId, submissionsQuery.data]);
 
   const submitListing = trpc.offMarket.submit.useMutation({
     onSuccess: async () => {
@@ -73,9 +98,10 @@ export function OffMarketWorkbench() {
           <h2 className="text-lg font-semibold">Assign Submission</h2>
           <select
             value={selectedSubmission}
-            onChange={(event) => setSelectedSubmission(event.target.value)}
+            onChange={(event) => setManualSelectedSubmission(event.target.value)}
             className="mt-3 w-full rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm"
           >
+            {(submissionsQuery.data ?? []).length === 0 ? <option value="">No submissions found</option> : null}
             {(submissionsQuery.data ?? []).map((submission) => (
               <option key={submission.id} value={submission.id}>
                 {submission.suburb}, {submission.state} ({submission.status})

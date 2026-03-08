@@ -58,10 +58,28 @@ export type OffMarketRecord = {
   createdAt: string;
 };
 
+export type ComplianceChecklistItemRecord = {
+  code: string;
+  label: string;
+  completed: boolean;
+  evidenceNote?: string;
+  completedAt?: string;
+  completedBy?: string;
+};
+
+export type ComplianceChecklistRecord = {
+  organizationId: string;
+  state: "NSW" | "VIC";
+  policyVersion: string;
+  items: ComplianceChecklistItemRecord[];
+  updatedAt: string;
+};
+
 export const db = {
   clients: [] as ClientRecord[],
   properties: [] as PropertyRecord[],
   offMarketSubmissions: [] as OffMarketRecord[],
+  complianceChecklists: [] as ComplianceChecklistRecord[],
   dueDiligenceReports: new Map<string, z.infer<typeof dueDiligenceRunInput> & { riskScore: number; flags: string[]; summary: string; createdAt: string }>(),
   portalFeedback: [] as Array<z.infer<typeof portalFeedbackInput> & { createdAt: string }>,
 };

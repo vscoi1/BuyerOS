@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "@/lib/trpc/server";
+import { writeAuditLog } from "@/server/audit";
 import { emitEvent } from "@/server/events";
 import { getDueDiligence, getProperty, saveDueDiligence } from "@/server/data/data-access";
 import { runDueDiligence } from "@/server/services/due-diligence";
@@ -23,6 +24,14 @@ export const dueDiligenceRouter = router({
     if (!persisted) {
       throw new TRPCError({ code: "NOT_FOUND" });
     }
+
+    writeAuditLog({
+      organizationId: ctx.session.organizationId,
+      actorId: ctx.session.user.id,
+      action: "due_diligence.run",
+      entityType: "property",
+      entityId: input.propertyId,
+    });
 
     emitEvent("due_diligence.completed", {
       organizationId: ctx.session.organizationId,

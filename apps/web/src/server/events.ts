@@ -4,7 +4,8 @@ export type DomainEventType =
   | "due_diligence.completed"
   | "risk_flag.generated"
   | "off_market.received"
-  | "client_update.pending_approval";
+  | "client_update.pending_approval"
+  | "compliance.checklist.updated";
 
 export interface DomainEvent {
   id: string;

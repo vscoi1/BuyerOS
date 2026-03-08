@@ -1,8 +1,11 @@
 import type { PrismaClient } from "@prisma/client";
 import { getPrismaClient } from "@/lib/db/prisma";
 import { db } from "@/server/store";
+import { getChecklistForState, type ComplianceState } from "@/server/services/compliance";
 import type {
   clientCreateInput,
+  complianceChecklistUpdateItemInput,
+  complianceStateInput,
   clientUpdateInput,
   dueDiligenceRunInput,
   documentUploadInitiateInput,
@@ -31,6 +34,8 @@ type OffMarketCreate = z.infer<typeof offMarketSubmitInput>;
 type DueDiligenceRun = z.infer<typeof dueDiligenceRunInput>;
 type PortalFeedback = z.infer<typeof portalFeedbackInput>;
 type DocumentUploadInitiate = z.infer<typeof documentUploadInitiateInput>;
+type ComplianceChecklistStateInput = z.infer<typeof complianceStateInput>;
+type ComplianceChecklistUpdateItemInput = z.infer<typeof complianceChecklistUpdateItemInput>;
 
 export type PersistedClient = {
   id: string;
@@ -82,6 +87,22 @@ export type PersistedDueDiligenceReport = DueDiligenceRun & {
   flags: string[];
   summary: string;
   createdAt: string;
+};
+
+export type PersistedComplianceChecklistItem = {
+  code: string;
+  label: string;
+  completed: boolean;
+  evidenceNote?: string;
+  completedAt?: string;
+  completedBy?: string;
+};
+
+export type PersistedComplianceChecklist = {
+  state: ComplianceState;
+  policyVersion: string;
+  items: PersistedComplianceChecklistItem[];
+  updatedAt: string;
 };
 
 async function ensureActor(prisma: PrismaClient, session: SessionInput): Promise<void> {
@@ -200,6 +221,63 @@ function mapPropertyRecord(property: {
     matchScore: property.matchScore ?? 0,
     createdAt: property.createdAt.toISOString(),
   };
+}
+
+function buildChecklistItems(state: ComplianceState): PersistedComplianceChecklistItem[] {
+  return getChecklistForState(state).items.map((item) => ({
+    code: item.code,
+    label: item.label,
+    completed: false,
+  }));
+}
+
+function normaliseChecklistItems(
+  state: ComplianceState,
+  itemsJson: unknown,
+): PersistedComplianceChecklistItem[] {
+  const template = getChecklistForState(state).items;
+  const existingByCode = new Map<string, PersistedComplianceChecklistItem>();
+
+  if (Array.isArray(itemsJson)) {
+    for (const item of itemsJson) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+      const asRecord = item as Record<string, unknown>;
+      if (typeof asRecord.code !== "string") {
+        continue;
+      }
+      existingByCode.set(asRecord.code, {
+        code: asRecord.code,
+        label: typeof asRecord.label === "string" ? asRecord.label : "",
+        completed: asRecord.completed === true,
+        evidenceNote:
+          typeof asRecord.evidenceNote === "string" && asRecord.evidenceNote.length > 0
+            ? asRecord.evidenceNote
+            : undefined,
+        completedAt:
+          typeof asRecord.completedAt === "string" && asRecord.completedAt.length > 0
+            ? asRecord.completedAt
+            : undefined,
+        completedBy:
+          typeof asRecord.completedBy === "string" && asRecord.completedBy.length > 0
+            ? asRecord.completedBy
+            : undefined,
+      });
+    }
+  }
+
+  return template.map((templateItem) => {
+    const existing = existingByCode.get(templateItem.code);
+    return {
+      code: templateItem.code,
+      label: templateItem.label,
+      completed: existing?.completed ?? false,
+      evidenceNote: existing?.evidenceNote,
+      completedAt: existing?.completedAt,
+      completedBy: existing?.completedBy,
+    };
+  });
 }
 
 export async function listClients(session: SessionInput): Promise<PersistedClient[]> {
@@ -980,5 +1058,193 @@ export async function registerDocumentUpload(
       });
     },
     () => undefined,
+  );
+}
+
+export async function listComplianceChecklists(
+  session: SessionInput,
+): Promise<PersistedComplianceChecklist[]> {
+  const states: ComplianceState[] = ["NSW", "VIC"];
+  const checklists = await Promise.all(
+    states.map((state) => getComplianceChecklist(session, { state })),
+  );
+  return checklists;
+}
+
+export async function getComplianceChecklist(
+  session: SessionInput,
+  input: ComplianceChecklistStateInput,
+): Promise<PersistedComplianceChecklist> {
+  return runWithFallback(
+    session,
+    async (prisma) => {
+      const template = getChecklistForState(input.state);
+      let row = await prisma.complianceChecklist.findFirst({
+        where: {
+          organizationId: session.organizationId,
+          state: input.state,
+        },
+      });
+
+      if (!row) {
+        row = await prisma.complianceChecklist.create({
+          data: {
+            organizationId: session.organizationId,
+            state: input.state,
+            policyVersion: template.policyVersion,
+            itemsJson: buildChecklistItems(input.state),
+          },
+        });
+      }
+
+      return {
+        state: input.state,
+        policyVersion: row.policyVersion,
+        items: normaliseChecklistItems(input.state, row.itemsJson),
+        updatedAt: row.updatedAt.toISOString(),
+      };
+    },
+    () => {
+      const template = getChecklistForState(input.state);
+      const existing = db.complianceChecklists.find(
+        (row) =>
+          row.organizationId === session.organizationId &&
+          row.state === input.state,
+      );
+
+      if (existing) {
+        return {
+          state: existing.state,
+          policyVersion: existing.policyVersion,
+          items: existing.items,
+          updatedAt: existing.updatedAt,
+        };
+      }
+
+      const created = {
+        organizationId: session.organizationId,
+        state: input.state,
+        policyVersion: template.policyVersion,
+        items: buildChecklistItems(input.state),
+        updatedAt: new Date().toISOString(),
+      };
+      db.complianceChecklists.push(created);
+      return {
+        state: created.state,
+        policyVersion: created.policyVersion,
+        items: created.items,
+        updatedAt: created.updatedAt,
+      };
+    },
+  );
+}
+
+export async function updateComplianceChecklistItem(
+  session: SessionInput,
+  input: ComplianceChecklistUpdateItemInput,
+): Promise<PersistedComplianceChecklist | null> {
+  return runWithFallback(
+    session,
+    async (prisma) => {
+      const template = getChecklistForState(input.state);
+      let row = await prisma.complianceChecklist.findFirst({
+        where: {
+          organizationId: session.organizationId,
+          state: input.state,
+        },
+      });
+
+      if (!row) {
+        row = await prisma.complianceChecklist.create({
+          data: {
+            organizationId: session.organizationId,
+            state: input.state,
+            policyVersion: template.policyVersion,
+            itemsJson: buildChecklistItems(input.state),
+          },
+        });
+      }
+
+      const existingItems = normaliseChecklistItems(input.state, row.itemsJson);
+      const itemExists = existingItems.some((item) => item.code === input.code);
+      if (!itemExists) {
+        return null;
+      }
+
+      const nowIso = new Date().toISOString();
+      const updatedItems = existingItems.map((item) => {
+        if (item.code !== input.code) {
+          return item;
+        }
+
+        return {
+          ...item,
+          completed: input.completed,
+          evidenceNote: input.evidenceNote,
+          completedAt: input.completed ? nowIso : undefined,
+          completedBy: input.completed ? session.user.id : undefined,
+        };
+      });
+
+      const updatedRow = await prisma.complianceChecklist.update({
+        where: { id: row.id },
+        data: {
+          itemsJson: updatedItems,
+        },
+      });
+
+      return {
+        state: input.state,
+        policyVersion: updatedRow.policyVersion,
+        items: normaliseChecklistItems(input.state, updatedRow.itemsJson),
+        updatedAt: updatedRow.updatedAt.toISOString(),
+      };
+    },
+    () => {
+      let checklist = db.complianceChecklists.find(
+        (row) =>
+          row.organizationId === session.organizationId &&
+          row.state === input.state,
+      );
+
+      if (!checklist) {
+        const template = getChecklistForState(input.state);
+        checklist = {
+          organizationId: session.organizationId,
+          state: input.state,
+          policyVersion: template.policyVersion,
+          items: buildChecklistItems(input.state),
+          updatedAt: new Date().toISOString(),
+        };
+        db.complianceChecklists.push(checklist);
+      }
+
+      let found = false;
+      checklist.items = checklist.items.map((item) => {
+        if (item.code !== input.code) {
+          return item;
+        }
+        found = true;
+        return {
+          ...item,
+          completed: input.completed,
+          evidenceNote: input.evidenceNote,
+          completedAt: input.completed ? new Date().toISOString() : undefined,
+          completedBy: input.completed ? session.user.id : undefined,
+        };
+      });
+
+      if (!found) {
+        return null;
+      }
+
+      checklist.updatedAt = new Date().toISOString();
+      return {
+        state: checklist.state,
+        policyVersion: checklist.policyVersion,
+        items: checklist.items,
+        updatedAt: checklist.updatedAt,
+      };
+    },
   );
 }

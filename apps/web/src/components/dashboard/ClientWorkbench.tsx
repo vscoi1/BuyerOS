@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 
@@ -13,10 +14,28 @@ function formatBudget(min: number, max: number): string {
 }
 
 export function ClientWorkbench() {
+  const searchParams = useSearchParams();
+  const requestedClientId = searchParams.get("clientId");
   const utils = trpc.useUtils();
   const clientsQuery = trpc.clients.list.useQuery();
   const propertiesQuery = trpc.property.list.useQuery({});
-  const [selectedClientId, setSelectedClientId] = useState<string>("client_demo_1");
+  const [manualSelectedClientId, setManualSelectedClientId] = useState<string>("");
+  const selectedClientId = useMemo(() => {
+    const clients = clientsQuery.data ?? [];
+    if (clients.length === 0) {
+      return "";
+    }
+
+    if (requestedClientId && clients.some((client) => client.id === requestedClientId)) {
+      return requestedClientId;
+    }
+
+    if (manualSelectedClientId && clients.some((client) => client.id === manualSelectedClientId)) {
+      return manualSelectedClientId;
+    }
+
+    return clients[0]?.id ?? "";
+  }, [clientsQuery.data, manualSelectedClientId, requestedClientId]);
 
   const selectedClientQuery = trpc.clients.get.useQuery(
     { id: selectedClientId },
@@ -41,10 +60,10 @@ export function ClientWorkbench() {
 
   const updateClient = trpc.clients.update.useMutation({
     onSuccess: async () => {
-      await Promise.all([
-        utils.clients.list.invalidate(),
-        utils.clients.get.invalidate({ id: selectedClientId }),
-      ]);
+      await utils.clients.list.invalidate();
+      if (selectedClientId) {
+        await utils.clients.get.invalidate({ id: selectedClientId });
+      }
     },
   });
 
@@ -108,6 +127,9 @@ export function ClientWorkbench() {
         <form
           onSubmit={(event) => {
             event.preventDefault();
+            if (!selectedClientId) {
+              return;
+            }
             const form = new FormData(event.currentTarget);
             updateClient.mutate({
               id: selectedClientId,
@@ -119,9 +141,10 @@ export function ClientWorkbench() {
           <h2 className="text-lg font-semibold">Update Selected Client</h2>
           <select
             value={selectedClientId}
-            onChange={(event) => setSelectedClientId(event.target.value)}
+            onChange={(event) => setManualSelectedClientId(event.target.value)}
             className="mt-3 w-full rounded border border-[var(--color-neutral-200)] px-3 py-2 text-sm"
           >
+            {(clientsQuery.data ?? []).length === 0 ? <option value="">No clients found</option> : null}
             {(clientsQuery.data ?? []).map((client) => (
               <option key={client.id} value={client.id}>
                 {client.firstName} {client.lastName}

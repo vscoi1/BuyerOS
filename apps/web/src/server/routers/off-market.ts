@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "@/lib/trpc/server";
+import { writeAuditLog } from "@/server/audit";
 import {
   assignOffMarketSubmission,
   createOffMarketSubmission,
@@ -11,6 +12,14 @@ import { offMarketAssignInput, offMarketSubmitInput } from "@/server/validators"
 export const offMarketRouter = router({
   submit: protectedProcedure.input(offMarketSubmitInput).mutation(async ({ ctx, input }) => {
     const submission = await createOffMarketSubmission(ctx.session, input);
+
+    writeAuditLog({
+      organizationId: ctx.session.organizationId,
+      actorId: ctx.session.user.id,
+      action: "off_market.submit",
+      entityType: "off_market_submission",
+      entityId: submission.id,
+    });
 
     emitEvent("off_market.received", {
       organizationId: ctx.session.organizationId,
@@ -28,6 +37,14 @@ export const offMarketRouter = router({
     if (!submission) {
       throw new TRPCError({ code: "NOT_FOUND" });
     }
+
+    writeAuditLog({
+      organizationId: ctx.session.organizationId,
+      actorId: ctx.session.user.id,
+      action: "off_market.assign",
+      entityType: "off_market_submission",
+      entityId: submission.id,
+    });
 
     return submission;
   }),

@@ -2,6 +2,7 @@ import { router } from "@/lib/trpc/server";
 import { analysisRouter } from "@/server/routers/analysis";
 import { briefRouter } from "@/server/routers/brief";
 import { clientRouter } from "@/server/routers/client";
+import { complianceRouter } from "@/server/routers/compliance";
 import { documentRouter } from "@/server/routers/document";
 import { dueDiligenceRouter } from "@/server/routers/due-diligence";
 import { offMarketRouter } from "@/server/routers/off-market";
@@ -17,6 +18,7 @@ export const appRouter = router({
   document: documentRouter,
   portal: portalRouter,
   analysis: analysisRouter,
+  compliance: complianceRouter,
 });
 
 export type AppRouter = typeof appRouter;

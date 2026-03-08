@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { PropertyCard } from "@/components/property/PropertyCard";
@@ -16,11 +17,32 @@ const stages = [
 ] as const;
 
 export function PropertyWorkbench() {
+  const searchParams = useSearchParams();
+  const requestedPropertyId = searchParams.get("propertyId");
   const utils = trpc.useUtils();
   const propertiesQuery = trpc.property.list.useQuery({});
   const clientsQuery = trpc.clients.list.useQuery();
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string>("property_demo_1");
+  const [manualSelectedPropertyId, setManualSelectedPropertyId] = useState<string>("");
   const [signedStorageKey, setSignedStorageKey] = useState<string>("");
+  const selectedPropertyId = useMemo(() => {
+    const properties = propertiesQuery.data ?? [];
+    if (properties.length === 0) {
+      return "";
+    }
+
+    if (requestedPropertyId && properties.some((property) => property.id === requestedPropertyId)) {
+      return requestedPropertyId;
+    }
+
+    if (
+      manualSelectedPropertyId &&
+      properties.some((property) => property.id === manualSelectedPropertyId)
+    ) {
+      return manualSelectedPropertyId;
+    }
+
+    return properties[0]?.id ?? "";
+  }, [manualSelectedPropertyId, propertiesQuery.data, requestedPropertyId]);
 
   const selectedProperty = useMemo(
     () => propertiesQuery.data?.find((property) => property.id === selectedPropertyId),
@@ -135,9 +157,10 @@ export function PropertyWorkbench() {
           <h2 className="text-lg font-semibold">Update Property Stage</h2>
           <select
             value={selectedPropertyId}
-            onChange={(event) => setSelectedPropertyId(event.target.value)}
+            onChange={(event) => setManualSelectedPropertyId(event.target.value)}
             className="mt-3 w-full rounded border border-[var(--color-neutral-200)] px-3 py-2 text-sm"
           >
+            {(propertiesQuery.data ?? []).length === 0 ? <option value="">No properties found</option> : null}
             {(propertiesQuery.data ?? []).map((property) => (
               <option key={property.id} value={property.id}>
                 {property.address}, {property.suburb}
@@ -261,7 +284,7 @@ export function PropertyWorkbench() {
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {(propertiesQuery.data ?? []).map((item) => (
-          <button key={item.id} onClick={() => setSelectedPropertyId(item.id)} className="text-left">
+          <button key={item.id} onClick={() => setManualSelectedPropertyId(item.id)} className="text-left">
             <PropertyCard
               address={`${item.address}, ${item.suburb} ${item.state}`}
               stage={item.stage}

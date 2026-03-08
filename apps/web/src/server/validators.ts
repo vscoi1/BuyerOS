@@ -116,3 +116,13 @@ export const analysisStampDutyInput = z.object({
   purchasePrice: z.number().int().positive(),
   isForeignBuyer: z.boolean().default(false),
 });
+
+export const complianceStateInput = z.object({
+  state: z.enum(["NSW", "VIC"]),
+});
+
+export const complianceChecklistUpdateItemInput = complianceStateInput.extend({
+  code: z.string().min(3).max(32),
+  completed: z.boolean(),
+  evidenceNote: z.string().max(2000).optional(),
+});

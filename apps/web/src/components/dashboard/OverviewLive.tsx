@@ -4,17 +4,37 @@ import { StatCard } from "@/components/overview/StatCard";
 import { PropertyCard } from "@/components/property/PropertyCard";
 import { trpc } from "@/lib/trpc/client";
 
-export function OverviewLive() {
+interface OverviewLiveProps {
+  initialStats: {
+    clientCount: number;
+    propertyCount: number;
+    dueDiligenceCount: number;
+    offMarketCount: number;
+  };
+  initialProperties: Array<{
+    id: string;
+    address: string;
+    suburb: string;
+    state: string;
+    stage: string;
+    matchScore: number;
+    isOffMarket: boolean;
+  }>;
+}
+
+export function OverviewLive({ initialStats, initialProperties }: OverviewLiveProps) {
   const clients = trpc.clients.list.useQuery();
   const properties = trpc.property.list.useQuery({});
   const submissions = trpc.offMarket.list.useQuery();
 
-  const clientCount = clients.data?.length ?? 0;
-  const propertyCount = properties.data?.length ?? 0;
-  const dueDiligenceCount = (properties.data ?? []).filter(
+  const clientCount = clients.data?.length ?? initialStats.clientCount;
+  const propertyCount = properties.data?.length ?? initialStats.propertyCount;
+  const dueDiligenceCount = (properties.data ?? initialProperties).filter(
     (property) => property.stage === "DUE_DILIGENCE",
-  ).length;
-  const offMarketCount = (properties.data ?? []).filter((property) => property.isOffMarket).length;
+  ).length || initialStats.dueDiligenceCount;
+  const offMarketCount =
+    (properties.data ?? initialProperties).filter((property) => property.isOffMarket).length ||
+    initialStats.offMarketCount;
 
   const statItems = [
     { label: "Active Clients", value: clientCount, trend: "+0%" },
@@ -42,8 +62,8 @@ export function OverviewLive() {
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {properties.data?.length ? (
-            properties.data.map((item) => (
+          {(properties.data ?? initialProperties).length ? (
+            (properties.data ?? initialProperties).map((item) => (
               <PropertyCard
                 key={item.id}
                 address={`${item.address}, ${item.suburb} ${item.state}`}
