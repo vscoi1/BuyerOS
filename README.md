@@ -80,6 +80,7 @@ npm run dev
 4. Deploy.
 
 Notes:
+- Install command is pinned to `npm ci --include=dev` via `vercel.json` so CSS/tooling build deps are always present.
 - Without DB env vars, Vercel runs demo/in-memory mode.
 - With Supabase DB env vars, data persists across deploys and restarts.
 
