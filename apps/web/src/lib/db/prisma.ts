@@ -24,14 +24,19 @@ export function getPrismaClient(): PrismaClient | null {
   }
 
   if (!global.__buyersosPrisma) {
-    global.__buyersosPrisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: databaseUrl,
+    try {
+      global.__buyersosPrisma = new PrismaClient({
+        datasources: {
+          db: {
+            url: databaseUrl,
+          },
         },
-      },
-      log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-    });
+        log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+      });
+    } catch (error) {
+      console.error("Prisma client unavailable, falling back to in-memory store", error);
+      return null;
+    }
   }
 
   return global.__buyersosPrisma;
