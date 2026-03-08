@@ -14,10 +14,14 @@
     "build": "npm run build --workspace web",
     "db:generate": "npm run db:generate --workspace @buyersos/db",
     "db:migrate": "npm run db:migrate --workspace @buyersos/db",
-    "db:generate:supabase": "DATABASE_URL=\"$SUPABASE_DATABASE_URL\" npm run db:generate",
-    "db:migrate:supabase": "DATABASE_URL=\"$SUPABASE_DATABASE_URL\" npm run db:migrate"
+    "db:generate:supabase": "DATABASE_URL=\"${DATABASE_URL:-$SUPABASE_DATABASE_URL}\" npm run db:generate",
+    "db:migrate:supabase": "DATABASE_URL=\"${DATABASE_URL:-$SUPABASE_DATABASE_URL}\" npm run db:migrate",
+    "db:drop:supabase": "bash ./scripts/db-drop-supabase.sh",
+    "db:seed:supabase": "node ./scripts/db-seed-supabase.mjs",
+    "db:reset:supabase": "bash ./scripts/db-drop-supabase.sh && npm run db:migrate:supabase",
+    "db:prepare:demo:supabase": "npm run db:migrate:supabase && npm run db:seed:supabase"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": "20.x"
   }
 }

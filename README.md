@@ -36,7 +36,33 @@ npm run db:generate:supabase
 npm run db:migrate:supabase
 ```
 
-5. Start the app:
+5. Seed persistent demo data (idempotent):
+
+```bash
+npm run db:seed:supabase
+```
+
+Or run migrate + seed together:
+
+```bash
+npm run db:prepare:demo:supabase
+```
+
+### Optional: drop/reset Supabase schema
+
+This is destructive and removes all existing data in `public` schema.
+
+```bash
+CONFIRM_DROP=DROP_SUPABASE_DB npm run db:drop:supabase
+```
+
+Drop + migrate in one command:
+
+```bash
+CONFIRM_DROP=DROP_SUPABASE_DB npm run db:reset:supabase
+```
+
+6. Start the app:
 
 ```bash
 npm run dev
@@ -45,7 +71,7 @@ npm run dev
 ## Deploy on Vercel with Supabase
 
 1. Import this repo in Vercel.
-2. Set project root to `apps/web`.
+2. Keep project root at repo root (this monorepo is configured via `vercel.json`).
 3. Add env vars in Vercel Project Settings:
 
 - `DATABASE_URL` (recommended)
@@ -56,6 +82,16 @@ npm run dev
 Notes:
 - Without DB env vars, Vercel runs demo/in-memory mode.
 - With Supabase DB env vars, data persists across deploys and restarts.
+
+## Quick demo deploy (no database required)
+
+If you only need a showcase deployment:
+
+1. Import repo in Vercel
+2. Do not set any database env vars
+3. Deploy
+
+The app will boot in seeded in-memory demo mode automatically.
 
 ## Verification
 

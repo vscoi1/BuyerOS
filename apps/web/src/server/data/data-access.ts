@@ -704,7 +704,20 @@ export async function listOffMarketSubmissions(
         orderBy: { createdAt: "desc" },
       });
 
-      return rows.map((row) => ({
+      return rows.map((row: {
+        id: string;
+        organizationId: string;
+        sellingAgent: string;
+        agency: string;
+        address: string;
+        suburb: string;
+        state: string;
+        postcode: string;
+        askPrice: number | null;
+        status: string;
+        assignedAgentId: string | null;
+        createdAt: Date;
+      }) => ({
         id: row.id,
         organizationId: row.organizationId,
         sellingAgent: row.sellingAgent,
@@ -864,7 +877,12 @@ export async function listPortalMilestones(
         orderBy: { updatedAt: "desc" },
       });
 
-      return rows.map((property) => ({
+      return rows.map((property: {
+        id: string;
+        address: string;
+        stage: string;
+        updatedAt: Date;
+      }) => ({
         propertyId: property.id,
         address: property.address,
         stage: property.stage,
