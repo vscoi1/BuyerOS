@@ -9,14 +9,27 @@ import {
   revokePortalSession,
 } from "@/server/data/data-access";
 import { emitEvent } from "@/server/events";
-import { portalFeedbackInput, portalSessionCreateInput } from "@/server/validators";
+import {
+  portalFeedbackInput,
+  portalSessionClientInput,
+  portalSessionCreateInput,
+  portalSessionRotateInput,
+} from "@/server/validators";
 
 export const portalRouter = router({
   session: router({
     create: protectedProcedure
       .input(portalSessionCreateInput)
       .mutation(async ({ ctx, input }) => {
-        const session = await createPortalSession(ctx.session, input.clientId);
+        if (ctx.session.user.role === "ASSISTANT") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only ADMIN or AGENT can create portal sessions.",
+          });
+        }
+
+        const session = await createPortalSession(ctx.session, input);
+        const mode = input.oneTime ? "one_time" : "standard";
 
         writeAuditLog({
           organizationId: ctx.session.organizationId,
@@ -24,13 +37,77 @@ export const portalRouter = router({
           action: "portal.session.create",
           entityType: "client",
           entityId: input.clientId,
+          metadata: {
+            mode,
+            rotateExisting: input.rotateExisting ?? false,
+            ttlHours: input.ttlHours ?? 24 * 7,
+          },
+        });
+
+        return session;
+      }),
+
+    createOneTime: protectedProcedure
+      .input(portalSessionClientInput)
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.session.user.role === "ASSISTANT") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only ADMIN or AGENT can create one-time portal sessions.",
+          });
+        }
+
+        const session = await createPortalSession(ctx.session, {
+          clientId: input.clientId,
+          oneTime: true,
+          rotateExisting: true,
+          ttlHours: 24,
+        });
+
+        writeAuditLog({
+          organizationId: ctx.session.organizationId,
+          actorId: ctx.session.user.id,
+          action: "portal.session.create_one_time",
+          entityType: "client",
+          entityId: input.clientId,
+        });
+
+        return session;
+      }),
+
+    rotate: protectedProcedure
+      .input(portalSessionRotateInput)
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.session.user.role === "ASSISTANT") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only ADMIN or AGENT can rotate portal sessions.",
+          });
+        }
+
+        const session = await createPortalSession(ctx.session, {
+          clientId: input.clientId,
+          ttlHours: input.ttlHours ?? 24 * 7,
+          oneTime: false,
+          rotateExisting: true,
+        });
+
+        writeAuditLog({
+          organizationId: ctx.session.organizationId,
+          actorId: ctx.session.user.id,
+          action: "portal.session.rotate",
+          entityType: "client",
+          entityId: input.clientId,
+          metadata: {
+            ttlHours: input.ttlHours ?? 24 * 7,
+          },
         });
 
         return session;
       }),
 
     revoke: protectedProcedure
-      .input(portalSessionCreateInput)
+      .input(portalSessionClientInput)
       .mutation(async ({ ctx, input }) => {
         if (ctx.session.user.role === "ASSISTANT") {
           throw new TRPCError({
@@ -55,13 +132,13 @@ export const portalRouter = router({
 
   shortlist: router({
     list: protectedProcedure
-      .input(portalSessionCreateInput)
+      .input(portalSessionClientInput)
       .query(async ({ ctx, input }) => listPortalShortlist(ctx.session, input.clientId)),
   }),
 
   milestones: router({
     list: protectedProcedure
-      .input(portalSessionCreateInput)
+      .input(portalSessionClientInput)
       .query(async ({ ctx, input }) => listPortalMilestones(ctx.session, input.clientId)),
   }),
 

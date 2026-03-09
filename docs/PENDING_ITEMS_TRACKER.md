@@ -35,9 +35,10 @@ Tracks implementation status against the MVP production backlog from `/Users/man
 - `P1.4 Off-market routing quality`: `IN_PROGRESS`
   - Ranked recommendation logic exists.
   - SLA analytics and richer eligibility signals pending.
-- `P1.5 Portal security hardening`: `IN_PROGRESS`
+- `P1.5 Portal security hardening`: `DONE`
   - Token hashing + revoke implemented.
-  - Rotation UX and one-time links pending.
+  - Session rotation and one-time portal links implemented.
+  - Expiry/replay enforcement tested.
 
 ## P2
 - `P2.1 Redis integration`: `PENDING`
@@ -48,5 +49,5 @@ Tracks implementation status against the MVP production backlog from `/Users/man
 
 ## Current engineering focus
 1. Close P0.2 document-scope hardening across all document routes.
-2. Finish P1.1 UI completion for evidence attachment + policy migration.
-3. Strengthen P1.3 human-approval gates and non-advice UI notices.
+2. Expand off-market routing relevance with richer SLA and eligibility factors.
+3. Integrate NSW/VIC real data adapters for due diligence autopilot v1.

@@ -62,6 +62,10 @@ It defines:
 - Completed compliance UI exposure for:
   - checklist evidence attachment links,
   - policy migration action.
+- Hardened portal session lifecycle:
+  - role restrictions for create/rotate/revoke,
+  - one-time portal links,
+  - rotation invalidates older tokens.
 
 ## 3) Architecture to Follow (Non-Negotiable)
 

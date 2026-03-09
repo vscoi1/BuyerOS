@@ -68,6 +68,9 @@ export function ClientWorkbench() {
   });
 
   const createPortalSession = trpc.portal.session.create.useMutation();
+  const createOneTimePortalSession = trpc.portal.session.createOneTime.useMutation();
+  const rotatePortalSession = trpc.portal.session.rotate.useMutation();
+  const revokePortalSessions = trpc.portal.session.revoke.useMutation();
 
   const submitFeedback = trpc.portal.feedback.submit.useMutation({
     onSuccess: async () => {
@@ -183,7 +186,7 @@ export function ClientWorkbench() {
 
         <article className="rounded-[var(--radius-lg)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] p-5 shadow-[var(--shadow-xs)]">
           <h2 className="text-lg font-semibold">Portal Actions</h2>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               className="rounded-[var(--radius-md)] border border-[var(--color-neutral-300)] px-3 py-2 text-sm"
               onClick={() => createPortalSession.mutate({ clientId: selectedClientId })}
@@ -191,12 +194,51 @@ export function ClientWorkbench() {
             >
               {createPortalSession.isPending ? "Creating..." : "Create Portal Session"}
             </button>
+            <button
+              className="rounded-[var(--radius-md)] border border-[var(--color-neutral-300)] px-3 py-2 text-sm"
+              onClick={() => createOneTimePortalSession.mutate({ clientId: selectedClientId })}
+              disabled={!selectedClientId || createOneTimePortalSession.isPending}
+            >
+              {createOneTimePortalSession.isPending ? "Creating..." : "Create One-Time Link"}
+            </button>
+            <button
+              className="rounded-[var(--radius-md)] border border-[var(--color-neutral-300)] px-3 py-2 text-sm"
+              onClick={() => rotatePortalSession.mutate({ clientId: selectedClientId })}
+              disabled={!selectedClientId || rotatePortalSession.isPending}
+            >
+              {rotatePortalSession.isPending ? "Rotating..." : "Rotate Session"}
+            </button>
+            <button
+              className="rounded-[var(--radius-md)] border border-[var(--color-neutral-300)] px-3 py-2 text-sm"
+              onClick={() => revokePortalSessions.mutate({ clientId: selectedClientId })}
+              disabled={!selectedClientId || revokePortalSessions.isPending}
+            >
+              {revokePortalSessions.isPending ? "Revoking..." : "Revoke All"}
+            </button>
           </div>
           {createPortalSession.data ? (
             <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
-              Token: {createPortalSession.data.token} (expires {new Date(createPortalSession.data.expiresAt).toLocaleString("en-AU")})
+              Standard token: {createPortalSession.data.token} (expires {new Date(createPortalSession.data.expiresAt).toLocaleString("en-AU")})
             </p>
           ) : null}
+          {createOneTimePortalSession.data ? (
+            <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
+              One-time token: {createOneTimePortalSession.data.token} (expires {new Date(createOneTimePortalSession.data.expiresAt).toLocaleString("en-AU")})
+            </p>
+          ) : null}
+          {rotatePortalSession.data ? (
+            <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
+              Rotated token: {rotatePortalSession.data.token} (expires {new Date(rotatePortalSession.data.expiresAt).toLocaleString("en-AU")})
+            </p>
+          ) : null}
+          {revokePortalSessions.data ? (
+            <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
+              Existing sessions revoked for selected client.
+            </p>
+          ) : null}
+          <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
+            One-time links become invalid immediately after first successful portal open.
+          </p>
 
           <h3 className="mt-4 text-sm font-semibold">Milestones</h3>
           <ul className="mt-2 space-y-2 text-sm">

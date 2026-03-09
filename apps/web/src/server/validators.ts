@@ -58,6 +58,11 @@ export const propertyScoreRecomputeInput = z.object({
   isOffMarketPreferred: z.boolean().default(false),
 });
 
+export const marketSniperInput = z.object({
+  suburb: z.string().min(2),
+  state: z.string().min(2).max(3).toUpperCase(),
+});
+
 export const dealKillerReportGenerateInput = z.object({
   propertyId: z.string().min(3),
 });
@@ -93,8 +98,18 @@ export const offMarketAssignInput = z.object({
   agentId: z.string().min(3),
 });
 
-export const portalSessionCreateInput = z.object({
+export const portalSessionClientInput = z.object({
   clientId: z.string().min(3),
+});
+
+export const portalSessionCreateInput = portalSessionClientInput.extend({
+  ttlHours: z.number().int().min(1).max(24 * 14).default(24 * 7).optional(),
+  oneTime: z.boolean().default(false).optional(),
+  rotateExisting: z.boolean().default(false).optional(),
+});
+
+export const portalSessionRotateInput = portalSessionClientInput.extend({
+  ttlHours: z.number().int().min(1).max(24 * 14).default(24 * 7).optional(),
 });
 
 export const portalFeedbackInput = z.object({

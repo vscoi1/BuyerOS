@@ -12,6 +12,7 @@ import type {
   documentUploadInitiateInput,
   offMarketSubmitInput,
   portalFeedbackInput,
+  portalSessionCreateInput,
   propertyCreateInput,
   propertyListInput,
 } from "@/server/validators";
@@ -35,6 +36,7 @@ type PropertyList = z.infer<typeof propertyListInput>;
 type OffMarketCreate = z.infer<typeof offMarketSubmitInput>;
 type DueDiligenceRun = z.infer<typeof dueDiligenceRunInput>;
 type PortalFeedback = z.infer<typeof portalFeedbackInput>;
+type PortalSessionCreate = z.infer<typeof portalSessionCreateInput>;
 type DocumentUploadInitiate = z.infer<typeof documentUploadInitiateInput>;
 type ComplianceChecklistStateInput = z.infer<typeof complianceStateInput>;
 type ComplianceChecklistUpdateItemInput = z.infer<typeof complianceChecklistUpdateItemInput>;
@@ -1195,23 +1197,56 @@ async function hashToken(token: string): Promise<string> {
  */
 const portalSessionMemory = new Map<
   string,
-  { clientId: string; tokenHash: string; expiresAt: string; revokedAt?: string }
+  { clientId: string; tokenHash: string; expiresAt: string; revokedAt?: string; oneTime: boolean }
 >();
+
+function normalisePortalSessionInput(input: string | PortalSessionCreate): Required<PortalSessionCreate> {
+  if (typeof input === "string") {
+    return {
+      clientId: input,
+      ttlHours: 24 * 7,
+      oneTime: false,
+      rotateExisting: false,
+    };
+  }
+
+  return {
+    clientId: input.clientId,
+    ttlHours: input.ttlHours ?? 24 * 7,
+    oneTime: input.oneTime ?? false,
+    rotateExisting: input.rotateExisting ?? false,
+  };
+}
 
 export async function createPortalSession(
   session: SessionInput,
-  clientId: string,
-): Promise<{ clientId: string; token: string; expiresAt: string }> {
-  const plainToken = crypto.randomUUID();
+  input: string | PortalSessionCreate,
+): Promise<{ clientId: string; token: string; expiresAt: string; oneTime: boolean }> {
+  const payload = normalisePortalSessionInput(input);
+  const plainToken = `${payload.oneTime ? "ot" : "st"}_${crypto.randomUUID()}`;
   const tokenHash = await hashToken(plainToken);
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + payload.ttlHours * 60 * 60 * 1000);
 
   return runWithFallback(
     session,
     async (prisma) => {
+      if (payload.rotateExisting) {
+        await (prisma.portalSession.updateMany as unknown as (args: {
+          where: object;
+          data: { revokedAt: Date };
+        }) => Promise<{ count: number }>)({
+          where: {
+            clientId: payload.clientId,
+            client: { organizationId: session.organizationId, agentId: session.user.id },
+            revokedAt: null,
+          },
+          data: { revokedAt: new Date() },
+        });
+      }
+
       const client = await prisma.client.findFirst({
         where: {
-          id: clientId,
+          id: payload.clientId,
           organizationId: session.organizationId,
           agentId: session.user.id,
         },
@@ -1222,27 +1257,51 @@ export async function createPortalSession(
 
       await prisma.portalSession.create({
         data: {
-          clientId,
+          clientId: payload.clientId,
           tokenHash,          // store HASH only — plain token returned once to caller
           expiresAt,
         },
       });
-      return { clientId, token: plainToken, expiresAt: expiresAt.toISOString() };
+      return {
+        clientId: payload.clientId,
+        token: plainToken,
+        expiresAt: expiresAt.toISOString(),
+        oneTime: payload.oneTime,
+      };
     },
     () => {
       // Memory fallback: verify client belongs to requesting org+agent before issuing token
       const clientExists = db.clients.some(
-        (c) => c.id === clientId && c.organizationId === session.organizationId && c.agentId === session.user.id,
+        (c) =>
+          c.id === payload.clientId &&
+          c.organizationId === session.organizationId &&
+          c.agentId === session.user.id,
       );
       if (!clientExists) {
         throw new Error("NOT_FOUND");
       }
+
+      if (payload.rotateExisting) {
+        const now = new Date().toISOString();
+        for (const [hash, record] of portalSessionMemory.entries()) {
+          if (record.clientId === payload.clientId && !record.revokedAt) {
+            portalSessionMemory.set(hash, { ...record, revokedAt: now });
+          }
+        }
+      }
+
       portalSessionMemory.set(tokenHash, {
-        clientId,
+        clientId: payload.clientId,
         tokenHash,
         expiresAt: expiresAt.toISOString(),
+        oneTime: payload.oneTime,
       });
-      return { clientId, token: plainToken, expiresAt: expiresAt.toISOString() };
+      return {
+        clientId: payload.clientId,
+        token: plainToken,
+        expiresAt: expiresAt.toISOString(),
+        oneTime: payload.oneTime,
+      };
     },
   );
 }
@@ -1256,6 +1315,7 @@ export async function resolvePortalSession(
   plainToken: string,
 ): Promise<{ clientId: string } | null> {
   const tokenHash = await hashToken(plainToken);
+  const isOneTimeToken = plainToken.startsWith("ot_");
   const prisma = getPrismaClient();
 
   if (prisma) {
@@ -1269,6 +1329,16 @@ export async function resolvePortalSession(
       if (!row) return null;
       if (row.revokedAt) return null;          // revoked
       if (row.expiresAt < new Date()) return null; // expired
+
+      if (isOneTimeToken) {
+        await (prisma.portalSession.updateMany as unknown as (args: {
+          where: object;
+          data: { revokedAt: Date };
+        }) => Promise<{ count: number }>)({
+          where: { tokenHash, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
       return { clientId: row.clientId };
     } catch (err) {
       console.error("[portal] resolvePortalSession DB error:", err);
@@ -1280,6 +1350,12 @@ export async function resolvePortalSession(
   if (!record) return null;
   if (record.revokedAt) return null;
   if (new Date(record.expiresAt) < new Date()) return null;
+  if (record.oneTime || isOneTimeToken) {
+    portalSessionMemory.set(tokenHash, {
+      ...record,
+      revokedAt: new Date().toISOString(),
+    });
+  }
   return { clientId: record.clientId };
 }
 
