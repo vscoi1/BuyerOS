@@ -1,4 +1,5 @@
-import { headers } from "next/headers";
+import { cookies } from "next/headers";
+import { DEMO_USERS, type DemoUserId } from "@/lib/demo-users";
 
 export interface Session {
   organizationId: string;
@@ -11,20 +12,25 @@ export interface Session {
 }
 
 export async function auth(): Promise<Session | null> {
-  const h = await headers();
-  const demoUser = h.get("x-demo-user");
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("buyeros-session");
 
-  if (demoUser === "anonymous") {
+  if (!sessionCookie?.value) {
+    return null;
+  }
+
+  const demoUser = DEMO_USERS[sessionCookie.value as DemoUserId];
+  if (!demoUser) {
     return null;
   }
 
   return {
-    organizationId: "org_demo",
+    organizationId: demoUser.organizationId,
     user: {
-      id: "agent_demo_1",
-      name: "BuyerOS Demo Agent",
-      email: "agent@buyersos.au",
-      role: "ADMIN",
+      id: demoUser.id,
+      name: demoUser.name,
+      email: demoUser.email,
+      role: demoUser.role,
     },
   };
 }

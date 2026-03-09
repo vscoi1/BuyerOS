@@ -72,6 +72,7 @@ model Property {
   postcode       String
   stage          DealStage     @default(BRIEF)
   isOffMarket    Boolean       @default(false)
+  source         String        @default("MANUAL") // MANUAL, WHISPER_NETWORK
   price          Int?
   matchScore     Int?
   riskFlags      Json          @default("[]")
@@ -79,11 +80,23 @@ model Property {
   updatedAt      DateTime      @updatedAt
   documents      Document[]
   dueDiligence   DueDiligenceReport?
+  dealKiller     DealKillerReport?
   portalFeedback PortalFeedback[]
 
   @@index([organizationId, agentId, stage])
   @@index([suburb, state])
 }
+
+model DealKillerReport {
+  id             String   @id @default(cuid())
+  propertyId     String   @unique
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  overallRisk    String   // LOW, MODERATE, HIGH, CATASTROPHIC
+  summary        String
+  dealKillers    Json     @default("[]") // Array of string warnings
+  generatedAt    DateTime @default(now())
+}
+
 
 model Document {
   id           String   @id @default(cuid())
@@ -93,9 +106,26 @@ model Document {
   storageKey   String
   mimeType     String
   sizeBytes    Int
+  status       String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  redFlags     DocumentRedFlag[]
   uploadedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([propertyId])
+}
+
+model DocumentRedFlag {
+  id          String   @id @default(cuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  severity    String   // HIGH, MEDIUM, LOW
+  category    String   // ZONING, STRUCTURE, LEGAL, etc.
+  content     String
+  status      String   @default("UNREVIEWED") // UNREVIEWED, APPROVED, REJECTED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([documentId])
 }
 
 model OffMarketSubmission {
@@ -116,12 +146,13 @@ model OffMarketSubmission {
 }
 
 model PortalSession {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   clientId  String
-  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([clientId])
 }
@@ -137,6 +168,8 @@ model DueDiligenceReport {
   riskScore                Int
   flagsJson                Json
   summary                  String
+  status                   String   @default("COMPLETED")
+  lastFetchedAt            DateTime?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

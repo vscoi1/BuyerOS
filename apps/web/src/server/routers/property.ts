@@ -8,12 +8,22 @@ import {
   listProperties,
   updateProperty,
   updatePropertyMatchScore,
+  listDocuments,
+  getDocumentWithFlags,
+  extractDocumentRedFlags,
+  updateRedFlagStatus,
+  generateDealKillerReport,
 } from "@/server/data/data-access";
 import { calculatePropertyMatch } from "@/server/services/matching-engine";
 import {
   propertyCreateInput,
   propertyListInput,
   propertyScoreRecomputeInput,
+  documentListInput,
+  documentGetInput,
+  documentRedFlagExtractInput,
+  documentRedFlagUpdateStatusInput,
+  dealKillerReportGenerateInput,
 } from "@/server/validators";
 
 export const propertyRouter = router({
@@ -89,8 +99,7 @@ export const propertyRouter = router({
         entityId: updatedProperty.id,
       });
 
-      emitEvent("property.scored", {
-        organizationId: ctx.session.organizationId,
+      emitEvent(ctx.session.organizationId, "property.scored", {
         propertyId: updatedProperty.id,
         score: updatedProperty.matchScore,
         category: match.category,
@@ -101,5 +110,64 @@ export const propertyRouter = router({
         match,
       };
     }),
+  }),
+
+  generateDealKiller: protectedProcedure
+    .input(dealKillerReportGenerateInput)
+    .mutation(async ({ ctx, input }) => {
+      const result = await generateDealKillerReport(ctx.session, input.propertyId);
+
+      writeAuditLog({
+        organizationId: ctx.session.organizationId,
+        actorId: ctx.session.user.id,
+        action: "property.generateDealKiller",
+        entityType: "property",
+        entityId: input.propertyId,
+        metadata: { flagsCount: result.flagsCount },
+      });
+
+      return result.report;
+    }),
+
+  document: router({
+    list: protectedProcedure
+      .input(documentListInput)
+      .query(({ ctx, input }) => listDocuments(ctx.session, input.propertyId)),
+
+    get: protectedProcedure
+      .input(documentGetInput)
+      .query(({ ctx, input }) => getDocumentWithFlags(ctx.session, input.documentId)),
+
+    extractFlags: protectedProcedure
+      .input(documentRedFlagExtractInput)
+      .mutation(async ({ ctx, input }) => {
+        const flags = await extractDocumentRedFlags(ctx.session, input.documentId);
+
+        writeAuditLog({
+          organizationId: ctx.session.organizationId,
+          actorId: ctx.session.user.id,
+          action: "document.extractFlags",
+          entityType: "document",
+          entityId: input.documentId,
+        });
+
+        return flags;
+      }),
+
+    approveFlag: protectedProcedure
+      .input(documentRedFlagUpdateStatusInput)
+      .mutation(async ({ ctx, input }) => {
+        const flag = await updateRedFlagStatus(ctx.session, input.flagId, "APPROVED");
+        if (!flag) throw new TRPCError({ code: "NOT_FOUND" });
+        return flag;
+      }),
+
+    rejectFlag: protectedProcedure
+      .input(documentRedFlagUpdateStatusInput)
+      .mutation(async ({ ctx, input }) => {
+        const flag = await updateRedFlagStatus(ctx.session, input.flagId, "REJECTED");
+        if (!flag) throw new TRPCError({ code: "NOT_FOUND" });
+        return flag;
+      }),
   }),
 });

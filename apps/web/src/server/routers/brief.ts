@@ -16,8 +16,7 @@ export const briefRouter = router({
       entityId: ctx.session.user.id,
     });
 
-    emitEvent("brief.parsed", {
-      organizationId: ctx.session.organizationId,
+    emitEvent(ctx.session.organizationId, "brief.parsed", {
       agentId: ctx.session.user.id,
       confidence: parsed.confidence,
     });

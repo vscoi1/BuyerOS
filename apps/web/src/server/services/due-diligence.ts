@@ -5,6 +5,8 @@ interface DueDiligenceResult {
   riskScore: number;
   flags: string[];
   summary: string;
+  status?: "PENDING" | "COMPLETED" | "FAILED";
+  lastFetchedAt?: string;
 }
 
 const riskWeight = {
@@ -17,32 +19,36 @@ export function runDueDiligence(input: z.infer<typeof dueDiligenceRunInput>): Du
   const payload = dueDiligenceRunInput.parse(input);
 
   let score = 12;
-  score += riskWeight[payload.floodRisk];
-  score += riskWeight[payload.bushfireRisk];
+  const flood = payload.floodRisk ?? "LOW";
+  const bushfire = payload.bushfireRisk ?? "LOW";
+  const recentDelta = payload.recentComparableDeltaPct ?? 0;
+
+  score += riskWeight[flood];
+  score += riskWeight[bushfire];
 
   if (payload.zoningChangeFlag) {
     score += 14;
   }
 
-  if (payload.recentComparableDeltaPct < -10) {
+  if (recentDelta < -10) {
     score += 8;
   }
 
   const flags: string[] = [];
 
-  if (payload.floodRisk !== "LOW") {
-    flags.push(`Flood overlay risk: ${payload.floodRisk}`);
+  if (flood !== "LOW") {
+    flags.push(`Flood overlay risk: ${flood}`);
   }
 
-  if (payload.bushfireRisk !== "LOW") {
-    flags.push(`Bushfire overlay risk: ${payload.bushfireRisk}`);
+  if (bushfire !== "LOW") {
+    flags.push(`Bushfire overlay risk: ${bushfire}`);
   }
 
   if (payload.zoningChangeFlag) {
     flags.push("Active zoning or planning change flag");
   }
 
-  if (payload.recentComparableDeltaPct < -10) {
+  if (recentDelta < -10) {
     flags.push("Comparable sales trending down");
   }
 

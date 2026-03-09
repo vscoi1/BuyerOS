@@ -1,8 +1,9 @@
 "use client";
 
-import { Bell, Building2, House, Search, UserRound } from "lucide-react";
+import { Bell, Building2, House, LogOut, Search, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { logoutAction } from "@/lib/actions/auth-actions";
 import { trpc } from "@/lib/trpc/client";
 
 interface TopBarProps {
@@ -34,6 +35,31 @@ function rankMatch(haystack: string, needle: string): number {
     return 1;
   }
   return -1;
+}
+
+function LogoutButton() {
+  const [isPending, startTransition] = useTransition();
+
+  function handleLogout() {
+    startTransition(async () => {
+      await logoutAction();
+    });
+  }
+
+  return (
+    <button
+      id="logout-btn"
+      type="button"
+      onClick={handleLogout}
+      disabled={isPending}
+      aria-label="Sign out"
+      title="Sign out"
+      className="flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] px-3 py-2 text-sm text-[var(--color-neutral-700)] transition hover:border-[var(--color-error-500)] hover:text-[var(--color-error-500)] disabled:opacity-50"
+    >
+      <LogOut size={14} />
+      <span className="hidden md:inline">{isPending ? "Signing out…" : "Logout"}</span>
+    </button>
+  );
 }
 
 export function TopBar({ agentName }: TopBarProps) {
@@ -257,9 +283,8 @@ export function TopBar({ agentName }: TopBarProps) {
                         <button
                           type="button"
                           onClick={() => goToResult(result)}
-                          className={`flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-left transition ${
-                            active ? "bg-[var(--color-brand-50)]" : "hover:bg-[var(--color-neutral-50)]"
-                          }`}
+                          className={`flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-left transition ${active ? "bg-[var(--color-brand-50)]" : "hover:bg-[var(--color-neutral-50)]"
+                            }`}
                         >
                           {result.type === "CLIENT" ? (
                             <UserRound size={14} className="text-[var(--color-neutral-500)]" />
@@ -291,9 +316,10 @@ export function TopBar({ agentName }: TopBarProps) {
           >
             <Bell size={16} />
           </button>
-          <div className="hidden rounded-[var(--radius-md)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] px-3 py-2 text-sm md:block">
-            {agentName}
+          <div className="hidden rounded-[var(--radius-md)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] px-3 py-2 text-sm md:flex md:items-center md:gap-2">
+            <span>{agentName}</span>
           </div>
+          <LogoutButton />
         </div>
       </div>
     </header>

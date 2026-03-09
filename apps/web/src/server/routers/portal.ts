@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "@/lib/trpc/server";
 import { writeAuditLog } from "@/server/audit";
 import {
@@ -5,6 +6,7 @@ import {
   createPortalSession,
   listPortalMilestones,
   listPortalShortlist,
+  revokePortalSession,
 } from "@/server/data/data-access";
 import { emitEvent } from "@/server/events";
 import { portalFeedbackInput, portalSessionCreateInput } from "@/server/validators";
@@ -25,6 +27,29 @@ export const portalRouter = router({
         });
 
         return session;
+      }),
+
+    revoke: protectedProcedure
+      .input(portalSessionCreateInput)
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.session.user.role === "ASSISTANT") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only ADMIN or AGENT can revoke portal sessions.",
+          });
+        }
+
+        await revokePortalSession(ctx.session, input.clientId);
+
+        writeAuditLog({
+          organizationId: ctx.session.organizationId,
+          actorId: ctx.session.user.id,
+          action: "portal.session.revoke",
+          entityType: "client",
+          entityId: input.clientId,
+        });
+
+        return { revoked: true };
       }),
   }),
 
@@ -52,8 +77,7 @@ export const portalRouter = router({
         entityId: input.propertyId,
       });
 
-      emitEvent("client_update.pending_approval", {
-        organizationId: ctx.session.organizationId,
+      emitEvent(ctx.session.organizationId, "client_update.pending_approval", {
         clientId: input.clientId,
         propertyId: input.propertyId,
         status: input.status,

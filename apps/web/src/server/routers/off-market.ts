@@ -1,10 +1,13 @@
+import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "@/lib/trpc/server";
 import { writeAuditLog } from "@/server/audit";
 import {
   assignOffMarketSubmission,
   createOffMarketSubmission,
+  listAgents,
   listOffMarketSubmissions,
+  recommendAgentsForSubmission,
 } from "@/server/data/data-access";
 import { emitEvent } from "@/server/events";
 import { offMarketAssignInput, offMarketSubmitInput } from "@/server/validators";
@@ -21,8 +24,7 @@ export const offMarketRouter = router({
       entityId: submission.id,
     });
 
-    emitEvent("off_market.received", {
-      organizationId: ctx.session.organizationId,
+    emitEvent(ctx.session.organizationId, "off_market.received", {
       submissionId: submission.id,
       suburb: submission.suburb,
     });
@@ -31,6 +33,12 @@ export const offMarketRouter = router({
   }),
 
   list: protectedProcedure.query(async ({ ctx }) => listOffMarketSubmissions(ctx.session)),
+
+  listAgents: protectedProcedure.query(async ({ ctx }) => listAgents(ctx.session)),
+
+  recommendAgents: protectedProcedure
+    .input(z.object({ submissionId: z.string() }))
+    .query(async ({ ctx, input }) => recommendAgentsForSubmission(ctx.session, input.submissionId)),
 
   assign: protectedProcedure.input(offMarketAssignInput).mutation(async ({ ctx, input }) => {
     const submission = await assignOffMarketSubmission(ctx.session, input.submissionId, input.agentId);

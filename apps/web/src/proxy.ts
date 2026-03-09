@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { DEMO_USERS, type DemoUserId } from "@/lib/demo-users";
 
 const protectedPrefixes = [
   "/overview",
@@ -37,7 +38,6 @@ function isRateLimited(
 
 export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  const demoUser = request.headers.get("x-demo-user");
   const ip = request.headers.get("x-forwarded-for") ?? "local";
 
   if (pathname.startsWith("/api/auth")) {
@@ -52,7 +52,11 @@ export function proxy(request: NextRequest) {
     }
   }
 
-  if (protectedPrefixes.some((prefix) => pathname.startsWith(prefix)) && demoUser === "anonymous") {
+  const sessionCookie = request.cookies.get("buyeros-session");
+  const isAuthenticated =
+    !!sessionCookie?.value && !!DEMO_USERS[sessionCookie.value as DemoUserId];
+
+  if (protectedPrefixes.some((prefix) => pathname.startsWith(prefix)) && !isAuthenticated) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 

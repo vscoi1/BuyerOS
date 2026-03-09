@@ -22,6 +22,8 @@ export const documentRouter = router({
     }),
   }),
 
+  // TODO(P1.3): enforce document ownership once Document table has tenant scope.
+  // Currently any authenticated user can request a signed URL for any storageKey.
   getSignedUrl: protectedProcedure.input(documentSignedUrlInput).query(({ input }) => {
     return getSignedReadUrl(input);
   }),

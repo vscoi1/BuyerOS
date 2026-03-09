@@ -58,16 +58,20 @@ export const propertyScoreRecomputeInput = z.object({
   isOffMarketPreferred: z.boolean().default(false),
 });
 
+export const dealKillerReportGenerateInput = z.object({
+  propertyId: z.string().min(3),
+});
+
 export const briefParseInput = z.object({
   sourceText: z.string().min(20).max(10000),
 });
 
 export const dueDiligenceRunInput = z.object({
   propertyId: z.string().min(3),
-  floodRisk: z.enum(["LOW", "MEDIUM", "HIGH"]),
-  bushfireRisk: z.enum(["LOW", "MEDIUM", "HIGH"]),
-  zoningChangeFlag: z.boolean(),
-  recentComparableDeltaPct: z.number().min(-40).max(40),
+  floodRisk: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+  bushfireRisk: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+  zoningChangeFlag: z.boolean().optional(),
+  recentComparableDeltaPct: z.number().min(-40).max(40).optional(),
 });
 
 export const dueDiligenceGetInput = z.object({
@@ -125,4 +129,30 @@ export const complianceChecklistUpdateItemInput = complianceStateInput.extend({
   code: z.string().min(3).max(32),
   completed: z.boolean(),
   evidenceNote: z.string().max(2000).optional(),
+});
+export const complianceChecklistAttachEvidenceInput = complianceStateInput.extend({
+  code: z.string().min(3).max(32),
+  fileName: z.string().min(1).max(200),
+  url: z.string().url(),
+});
+
+export const documentListInput = z.object({
+  propertyId: z.string().min(3),
+});
+
+export const documentGetInput = z.object({
+  documentId: z.string().min(3),
+});
+
+export const documentRedFlagExtractInput = z.object({
+  documentId: z.string().min(3),
+});
+
+export const documentRedFlagUpdateStatusInput = z.object({
+  flagId: z.string().min(3),
+  status: z.enum(["APPROVED", "REJECTED"]),
+});
+
+export const whisperIngestInput = z.object({
+  rawContent: z.string().min(10).max(10000), // Raw email/text dump from the selling agent
 });

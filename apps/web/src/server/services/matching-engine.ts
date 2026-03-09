@@ -107,3 +107,51 @@ export function calculatePropertyMatch(input: PropertyMatchInput): PropertyMatch
   };
 }
 
+
+export interface AgentRankResult {
+  agentId: string;
+  agentName: string;
+  bestScore: number;
+  bestCategory: PropertyMatchResult["category"];
+  reasons: string[];
+}
+
+export function rankAgentsForSubmission(
+  submission: { suburb: string; state: string; askPrice?: number },
+  agents: { id: string; name: string; clients: { budgetMin: number; budgetMax: number; targetSuburbs: string[] }[] }[],
+): AgentRankResult[] {
+  const results: AgentRankResult[] = agents.map((agent) => {
+    let bestResult: PropertyMatchResult = {
+      score: 0,
+      category: "POTENTIAL",
+      reasons: ["No active clients matched this area"],
+    };
+
+    for (const client of agent.clients) {
+      const match = calculatePropertyMatch({
+        suburb: submission.suburb,
+        state: submission.state,
+        targetSuburbs: client.targetSuburbs,
+        budgetMin: client.budgetMin,
+        budgetMax: client.budgetMax,
+        price: submission.askPrice,
+        isOffMarket: true,
+        isOffMarketPreferred: true, // Off-market submissions are inherently off-market
+      });
+
+      if (match.score > bestResult.score) {
+        bestResult = match;
+      }
+    }
+
+    return {
+      agentId: agent.id,
+      agentName: agent.name,
+      bestScore: bestResult.score,
+      bestCategory: bestResult.category,
+      reasons: bestResult.reasons,
+    };
+  });
+
+  return results.sort((a, b) => b.bestScore - a.bestScore);
+}

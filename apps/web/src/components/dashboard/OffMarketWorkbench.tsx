@@ -9,41 +9,52 @@ export function OffMarketWorkbench() {
   const requestedSubmissionId = searchParams.get("submissionId");
   const utils = trpc.useUtils();
   const submissionsQuery = trpc.offMarket.list.useQuery();
+  const agentsQuery = trpc.offMarket.listAgents.useQuery();
+
   const [manualSelectedSubmission, setManualSelectedSubmission] = useState<string>("");
-  const selectedSubmission = useMemo(() => {
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+
+  const selectedSubmissionId = useMemo(() => {
     const submissions = submissionsQuery.data ?? [];
-    if (submissions.length === 0) {
-      return "";
-    }
-
-    if (
-      requestedSubmissionId &&
-      submissions.some((submission) => submission.id === requestedSubmissionId)
-    ) {
-      return requestedSubmissionId;
-    }
-
-    if (
-      manualSelectedSubmission &&
-      submissions.some((submission) => submission.id === manualSelectedSubmission)
-    ) {
-      return manualSelectedSubmission;
-    }
-
+    if (submissions.length === 0) return "";
+    if (requestedSubmissionId && submissions.some((s) => s.id === requestedSubmissionId)) return requestedSubmissionId;
+    if (manualSelectedSubmission && submissions.some((s) => s.id === manualSelectedSubmission)) return manualSelectedSubmission;
     return submissions[0]?.id ?? "";
   }, [manualSelectedSubmission, requestedSubmissionId, submissionsQuery.data]);
 
+  const selectedSubmission = useMemo(() =>
+    (submissionsQuery.data ?? []).find(s => s.id === selectedSubmissionId),
+    [selectedSubmissionId, submissionsQuery.data]
+  );
+
+  const recommendationsQuery = trpc.offMarket.recommendAgents.useQuery(
+    { submissionId: selectedSubmissionId },
+    { enabled: !!selectedSubmissionId }
+  );
+
   const submitListing = trpc.offMarket.submit.useMutation({
-    onSuccess: async () => {
-      await utils.offMarket.list.invalidate();
-    },
+    onSuccess: () => utils.offMarket.list.invalidate(),
   });
 
   const assignSubmission = trpc.offMarket.assign.useMutation({
-    onSuccess: async () => {
-      await utils.offMarket.list.invalidate();
+    onSuccess: () => {
+      utils.offMarket.list.invalidate();
+      setSelectedAgentId("");
     },
   });
+
+  const [now] = useState(() => Date.now());
+
+  const formatSLA = (createdAt: string, assignedAt?: string) => {
+    const start = new Date(createdAt).getTime();
+    const end = assignedAt ? new Date(assignedAt).getTime() : now;
+    const diffMins = Math.round((end - start) / 60000);
+
+    if (diffMins < 60) return `${diffMins}m`;
+    const diffHours = Math.round(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h`;
+    return `${Math.round(diffHours / 24)}d`;
+  };
 
   return (
     <div className="space-y-6">
@@ -65,66 +76,133 @@ export function OffMarketWorkbench() {
             event.currentTarget.reset();
           }}
         >
-          <h2 className="text-lg font-semibold">Submit Off-Market Listing</h2>
-          <div className="mt-3 grid gap-2">
-            <input name="sellingAgent" placeholder="Selling agent" className="rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" required />
-            <input name="agency" placeholder="Agency" className="rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" required />
-            <input name="address" placeholder="Address" className="rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" required />
-            <div className="grid gap-2 md:grid-cols-3">
-              <input name="suburb" placeholder="Suburb" className="rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" required />
-              <select name="state" className="rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" defaultValue="VIC">
-                {['NSW','VIC','QLD','WA','SA','TAS','ACT','NT'].map((state) => <option key={state} value={state}>{state}</option>)}
-              </select>
-              <input name="postcode" placeholder="Postcode" className="rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" required />
-            </div>
-            <input name="askPrice" type="number" placeholder="Ask price" className="rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" />
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-[var(--color-neutral-900)]">Submit Off-Market</h2>
+            <span className="rounded-full bg-[var(--color-brand-50)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-brand-600)]">Admin Only</span>
           </div>
-          <button type="submit" className="mt-3 rounded-[var(--radius-md)] bg-[var(--color-brand-500)] px-4 py-2 text-sm font-medium text-white" disabled={submitListing.isPending}>
-            {submitListing.isPending ? "Submitting..." : "Submit Listing"}
+          <div className="mt-4 grid gap-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <input name="sellingAgent" placeholder="Selling Agent Name" className="rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]" required />
+              <input name="agency" placeholder="Agency Name" className="rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]" required />
+            </div>
+            <input name="address" placeholder="Property Street Address" className="rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]" required />
+            <div className="grid gap-3 md:grid-cols-3">
+              <input name="suburb" placeholder="Suburb" className="rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]" required />
+              <select name="state" className="rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]" defaultValue="NSW">
+                {['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <input name="postcode" placeholder="Postcode" className="rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]" required />
+            </div>
+            <input name="askPrice" type="number" placeholder="Expected Price (Optional)" className="rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]" />
+          </div>
+          <button type="submit" className="mt-5 w-full rounded-md bg-[var(--color-brand-600)] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50" disabled={submitListing.isPending}>
+            {submitListing.isPending ? "Processing..." : "Register Submission"}
           </button>
         </form>
 
-        <form
-          className="rounded-[var(--radius-lg)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] p-5 shadow-[var(--shadow-xs)]"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const form = new FormData(event.currentTarget);
-            assignSubmission.mutate({
-              submissionId: selectedSubmission,
-              agentId: String(form.get("agentId")),
-            });
-          }}
-        >
-          <h2 className="text-lg font-semibold">Assign Submission</h2>
-          <select
-            value={selectedSubmission}
-            onChange={(event) => setManualSelectedSubmission(event.target.value)}
-            className="mt-3 w-full rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm"
+        <div className="flex flex-col rounded-[var(--radius-lg)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] p-5 shadow-[var(--shadow-xs)]">
+          <h2 className="text-lg font-semibold text-[var(--color-neutral-900)]">Assignment & Routing</h2>
+          <p className="mt-1 text-sm text-[var(--color-neutral-500)]">Match silent listings to the best-suited buyer&apos;s agent.</p>
+
+          <div className="mt-4 flex-1 space-y-4">
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-neutral-500)]">Select Submission</label>
+              <select
+                value={selectedSubmissionId}
+                onChange={(e) => setManualSelectedSubmission(e.target.value)}
+                className="mt-1 w-full rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]"
+              >
+                {(submissionsQuery.data ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>{s.suburb} - {s.sellingAgent} ({s.status})</option>
+                ))}
+                {(submissionsQuery.data ?? []).length === 0 && <option value="">No active submissions</option>}
+              </select>
+            </div>
+
+            <div className="rounded-md bg-[var(--color-neutral-50)] p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-[var(--color-neutral-600)]">AI Recommendation</span>
+                <button
+                  onClick={() => {
+                    const best = recommendationsQuery.data?.[0];
+                    if (best) setSelectedAgentId(best.agentId);
+                  }}
+                  className="text-xs font-bold text-[var(--color-brand-600)] hover:underline disabled:opacity-50"
+                  disabled={recommendationsQuery.isPending || !recommendationsQuery.data?.length}
+                >
+                  Apply Best Match
+                </button>
+              </div>
+              <div className="mt-2 text-xs text-[var(--color-neutral-500)]">
+                {recommendationsQuery.isPending ? "Analysing briefs..." : recommendationsQuery.data?.[0] ? (
+                  <p>Suggests <span className="font-bold text-[var(--color-neutral-900)]">{recommendationsQuery.data[0].agentName}</span> ({recommendationsQuery.data[0].bestScore}%) &mdash; {recommendationsQuery.data[0].reasons[0]}</p>
+                ) : "No clear match found."}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-neutral-500)]">Assign To Agent</label>
+              <select
+                value={selectedAgentId}
+                onChange={(e) => setSelectedAgentId(e.target.value)}
+                className="mt-1 w-full rounded-md border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm focus:border-[var(--color-brand-500)] focus:ring-1 focus:ring-[var(--color-brand-500)]"
+              >
+                <option value="">Choose an agent...</option>
+                {(agentsQuery.data ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>{a.name} ({a.role})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <button
+            onClick={() => assignSubmission.mutate({ submissionId: selectedSubmissionId, agentId: selectedAgentId })}
+            className="mt-5 w-full rounded-md bg-[var(--color-neutral-900)] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            disabled={assignSubmission.isPending || !selectedAgentId || !selectedSubmissionId || selectedSubmission?.status === "ASSIGNED"}
           >
-            {(submissionsQuery.data ?? []).length === 0 ? <option value="">No submissions found</option> : null}
-            {(submissionsQuery.data ?? []).map((submission) => (
-              <option key={submission.id} value={submission.id}>
-                {submission.suburb}, {submission.state} ({submission.status})
-              </option>
-            ))}
-          </select>
-          <input name="agentId" defaultValue="agent_demo_1" className="mt-2 w-full rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" required />
-          <button type="submit" className="mt-3 rounded border border-[var(--color-neutral-300)] px-4 py-2 text-sm" disabled={assignSubmission.isPending || !selectedSubmission}>
-            {assignSubmission.isPending ? "Assigning..." : "Assign"}
+            {assignSubmission.isPending ? "Assigning..." : "Confirm Assignment"}
           </button>
-        </form>
+        </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
-        {(submissionsQuery.data ?? []).map((listing) => (
-          <article key={listing.id} className="rounded-[var(--radius-lg)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] p-4 shadow-[var(--shadow-xs)]">
-            <p className="text-sm text-[var(--color-neutral-500)]">{listing.sellingAgent} - {listing.agency}</p>
-            <h2 className="mt-1 text-lg font-semibold">{listing.address}</h2>
-            <p className="text-sm">{listing.suburb}, {listing.state} {listing.postcode}</p>
-            <p className="mt-2 text-sm">Status: <span className="font-medium">{listing.status}</span></p>
-            {listing.assignedAgentId ? <p className="text-xs text-[var(--color-neutral-500)]">Assigned to: {listing.assignedAgentId}</p> : null}
-          </article>
-        ))}
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {(submissionsQuery.data ?? []).map((listing) => {
+          const isAssigned = listing.status === "ASSIGNED";
+          return (
+            <article key={listing.id} className="group relative flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] transition-all hover:border-[var(--color-brand-300)] hover:shadow-md">
+              <div className="flex flex-1 flex-col p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-tight text-[var(--color-neutral-400)]">{listing.agency}</p>
+                    <h3 className="mt-0.5 text-base font-bold text-[var(--color-neutral-900)]">{listing.address}</h3>
+                  </div>
+                  <div className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${isAssigned ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
+                    {listing.status}
+                  </div>
+                </div>
+
+                <p className="mt-0.5 text-sm text-[var(--color-neutral-600)]">{listing.suburb}, {listing.state}</p>
+
+                <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--color-neutral-100)] pt-3">
+                  <div>
+                    <p className="text-[9px] font-bold uppercase text-[var(--color-neutral-400)]">SLA / Receipt</p>
+                    <p className="text-xs font-semibold text-[var(--color-neutral-700)]">
+                      {isAssigned ? "Matched in " : "Pending "}
+                      <span className={!isAssigned ? 'text-orange-600' : ''}>{formatSLA(listing.createdAt, listing.assignedAt)}</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-bold uppercase text-[var(--color-neutral-400)]">Agent</p>
+                    <p className="truncate text-xs font-semibold text-[var(--color-neutral-700)]">
+                      {listing.assignedAgentId ? (agentsQuery.data?.find(a => a.id === listing.assignedAgentId)?.name ?? "Assigned") : "Unassigned"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="h-1 w-full bg-[var(--color-neutral-50)] group-hover:bg-[var(--color-brand-400)] transition-colors" />
+            </article>
+          );
+        })}
       </section>
     </div>
   );
