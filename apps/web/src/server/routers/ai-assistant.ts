@@ -24,6 +24,18 @@ export const aiAssistantRouter = router({
             const { session } = ctx;
             const query = message.toLowerCase();
 
+            if (
+                query.includes("legal advice") ||
+                query.includes("financial advice") ||
+                query.includes("credit") ||
+                query.includes("mortgage recommendation")
+            ) {
+                return {
+                    response:
+                        "I can help with platform workflows and data, but I cannot provide legal, financial, or credit advice. Please refer this to a licensed professional.",
+                };
+            }
+
             if (query.includes("client") || query.includes("people")) {
                 const clients = await listClients(session);
                 return {

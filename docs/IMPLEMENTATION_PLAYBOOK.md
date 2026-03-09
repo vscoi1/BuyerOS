@@ -1,6 +1,6 @@
 # BuyerOS Implementation Playbook
 
-Last updated: 2026-03-09
+Last updated: 2026-03-09 (evening pass)
 Baseline commit: `563f066`
 
 ## 1) Purpose
@@ -39,6 +39,8 @@ It defines:
 - Validation contracts: `apps/web/src/server/validators.ts`
 - Audit/events: `apps/web/src/server/audit.ts`, `apps/web/src/server/events.ts`
 - Compliance workflow UI: `apps/web/src/components/dashboard/ComplianceWorkbench.tsx`
+- AU safe-AI policy doc: `docs/AU_SAFE_AI_POLICY_AND_UI_WORDING.md`
+- Pending tracker: `docs/PENDING_ITEMS_TRACKER.md`
 
 ### 2.3 Known limitations right now
 - Demo auth (`x-demo-user`) instead of production identity provider.
@@ -46,6 +48,20 @@ It defines:
 - Compliance workflow exists but lacks evidence attachments and policy version migration tooling.
 - AI is mock/heuristic in places; provenance + confidence governance is incomplete.
 - Off-market matching is basic, not a full eligibility/reputation engine.
+- Redis/queue/search infra integrations are still pending.
+
+### 2.4 Completed in latest pass
+- Added explicit AU-safe AI policy and reusable UI wording pack.
+- Enforced document signed URL ownership checks.
+- Hardened document + red-flag operations with org+agent scoping.
+- Tightened legal-risk workflow:
+  - assistants cannot approve/reject risk flags,
+  - assistants cannot generate client-ready deal risk reports,
+  - deal risk reports now derive from approved findings only,
+  - pending-review counts emitted and logged.
+- Completed compliance UI exposure for:
+  - checklist evidence attachment links,
+  - policy migration action.
 
 ## 3) Architecture to Follow (Non-Negotiable)
 

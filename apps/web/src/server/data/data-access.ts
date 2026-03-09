@@ -16,6 +16,7 @@ import type {
   propertyListInput,
 } from "@/server/validators";
 import type { z } from "zod";
+import { writeAuditLog } from "@/server/audit";
 
 interface SessionInput {
   organizationId: string;
@@ -1482,6 +1483,38 @@ export async function registerDocumentUpload(
   );
 }
 
+export async function canAccessDocumentStorageKey(
+  session: SessionInput,
+  storageKey: string,
+): Promise<boolean> {
+  return runWithFallback(
+    session,
+    async (prisma) => {
+      const row = await prisma.document.findFirst({
+        where: {
+          storageKey,
+          property: {
+            organizationId: session.organizationId,
+            agentId: session.user.id,
+          },
+        },
+        select: { id: true },
+      });
+      return Boolean(row);
+    },
+    () => {
+      const doc = db.documents.find((d) => d.storageKey === storageKey);
+      if (!doc) return false;
+      return db.properties.some(
+        (p) =>
+          p.id === doc.propertyId &&
+          p.organizationId === session.organizationId &&
+          p.agentId === session.user.id,
+      );
+    },
+  );
+}
+
 export async function listDocuments(
   session: SessionInput,
   propertyId: string,
@@ -1490,7 +1523,13 @@ export async function listDocuments(
     session,
     async (prisma) => {
       const rows = await prisma.document.findMany({
-        where: { propertyId },
+        where: {
+          propertyId,
+          property: {
+            organizationId: session.organizationId,
+            agentId: session.user.id,
+          },
+        },
         orderBy: { uploadedAt: "desc" },
       });
       return rows.map((r) => ({
@@ -1499,7 +1538,18 @@ export async function listDocuments(
         uploadedAt: r.uploadedAt.toISOString(),
       }));
     },
-    () => db.documents.filter((d) => d.propertyId === propertyId),
+    () => {
+      const property = db.properties.find(
+        (p) =>
+          p.id === propertyId &&
+          p.organizationId === session.organizationId &&
+          p.agentId === session.user.id,
+      );
+      if (!property) {
+        return [];
+      }
+      return db.documents.filter((d) => d.propertyId === propertyId);
+    },
   );
 }
 
@@ -1510,8 +1560,14 @@ export async function getDocumentWithFlags(
   return runWithFallback(
     session,
     async (prisma) => {
-      const row = await prisma.document.findUnique({
-        where: { id: documentId },
+      const row = await prisma.document.findFirst({
+        where: {
+          id: documentId,
+          property: {
+            organizationId: session.organizationId,
+            agentId: session.user.id,
+          },
+        },
         include: { redFlags: true },
       });
       if (!row) return null;
@@ -1531,6 +1587,15 @@ export async function getDocumentWithFlags(
     () => {
       const doc = db.documents.find((d) => d.id === documentId);
       if (!doc) return null;
+      const property = db.properties.find(
+        (p) =>
+          p.id === doc.propertyId &&
+          p.organizationId === session.organizationId &&
+          p.agentId === session.user.id,
+      );
+      if (!property) {
+        return null;
+      }
       const flags = db.documentRedFlags.filter((f) => f.documentId === documentId);
       return { ...doc, redFlags: flags };
     },
@@ -1544,6 +1609,19 @@ export async function extractDocumentRedFlags(
   return runWithFallback(
     session,
     async (prisma) => {
+      const document = await prisma.document.findFirst({
+        where: {
+          id: documentId,
+          property: {
+            organizationId: session.organizationId,
+            agentId: session.user.id,
+          },
+        },
+      });
+      if (!document) {
+        return [];
+      }
+
       // Set to processing
       await prisma.document.update({
         where: { id: documentId },
@@ -1595,7 +1673,19 @@ export async function extractDocumentRedFlags(
     },
     async () => {
       const doc = db.documents.find((d) => d.id === documentId);
-      if (doc) doc.status = "PROCESSING";
+      if (!doc) {
+        return [];
+      }
+      const property = db.properties.find(
+        (p) =>
+          p.id === doc.propertyId &&
+          p.organizationId === session.organizationId &&
+          p.agentId === session.user.id,
+      );
+      if (!property) {
+        return [];
+      }
+      doc.status = "PROCESSING";
 
       await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -1613,7 +1703,7 @@ export async function extractDocumentRedFlags(
       ];
 
       db.documentRedFlags.push(...mockFlags);
-      if (doc) doc.status = "COMPLETED";
+      doc.status = "COMPLETED";
       return mockFlags;
     },
   );
@@ -1627,8 +1717,22 @@ export async function updateRedFlagStatus(
   return runWithFallback(
     session,
     async (prisma) => {
+      const existing = await prisma.documentRedFlag.findFirst({
+        where: {
+          id: flagId,
+          document: {
+            property: {
+              organizationId: session.organizationId,
+              agentId: session.user.id,
+            },
+          },
+        },
+      });
+      if (!existing) {
+        return null;
+      }
       const row = await prisma.documentRedFlag.update({
-        where: { id: flagId },
+        where: { id: existing.id },
         data: { status },
       });
       return {
@@ -1642,6 +1746,17 @@ export async function updateRedFlagStatus(
     () => {
       const flag = db.documentRedFlags.find((f) => f.id === flagId);
       if (!flag) return null;
+      const doc = db.documents.find((d) => d.id === flag.documentId);
+      if (!doc) return null;
+      const property = db.properties.find(
+        (p) =>
+          p.id === doc.propertyId &&
+          p.organizationId === session.organizationId &&
+          p.agentId === session.user.id,
+      );
+      if (!property) {
+        return null;
+      }
       flag.status = status;
       flag.updatedAt = new Date().toISOString();
       return flag;
@@ -2002,17 +2117,26 @@ export async function migrateComplianceChecklist(
 export async function generateDealKillerReport(
   session: SessionInput,
   propertyId: string,
-): Promise<{ report: DealKillerReportRecord; flagsCount: number }> {
-  // 1. Fetch all documents and their UNREVIEWED/APPROVED red flags for this property
+): Promise<{ report: DealKillerReportRecord; flagsCount: number; pendingReviewCount: number }> {
+  const property = await getProperty(session, propertyId);
+  if (!property) {
+    throw new Error("NOT_FOUND");
+  }
+
+  // 1. Fetch all documents and their red flags for this property
   const flags = await runWithFallback(
     session,
     async (prisma) => {
       const docs = await prisma.document.findMany({
-        where: { propertyId },
-        include: {
-          redFlags: {
-            where: { status: { in: ["UNREVIEWED", "APPROVED"] } },
+        where: {
+          propertyId,
+          property: {
+            organizationId: session.organizationId,
+            agentId: session.user.id,
           },
+        },
+        include: {
+          redFlags: true,
         },
       });
       return docs.flatMap((d) => d.redFlags) as unknown as DocumentRedFlagRecord[];
@@ -2026,36 +2150,44 @@ export async function generateDealKillerReport(
     }
   );
 
+  const approvedFlags = flags.filter((f) => f.status === "APPROVED");
+  const unreviewedFlags = flags.filter((f) => f.status === "UNREVIEWED");
+
   let overallRisk: "LOW" | "MODERATE" | "HIGH" | "CATASTROPHIC" = "LOW";
-  let summary = "No significant issues found.";
+  let summary = "No approved risk findings are available yet.";
   const dealKillers: string[] = [];
 
-  // MOCK LOGIC for Deal Killer Generation
-  if (flags.length === 0) {
-    // For demo purposes, if no documents exist, let's inject a catastrophic default to show the feature off.
-    overallRisk = "CATASTROPHIC";
-    summary =
-      "CRITICAL: Automated intelligence has detected severe, unmitigated risks associated with this property that were omitted from standard marketing material.";
-    dealKillers.push("Flammable ACP cladding detected on exterior facade (Extracted from historical building permits).");
-    dealKillers.push("Severe flood zoning overlay intersects structural footprint.");
+  if (approvedFlags.length === 0) {
+    overallRisk = "LOW";
+    if (unreviewedFlags.length > 0) {
+      summary = `Review required: ${unreviewedFlags.length} extracted finding(s) are pending human approval.`;
+    } else {
+      summary = "No approved risk findings are available yet.";
+    }
   } else {
-    const hasHigh = flags.some((f) => f.severity === "HIGH");
-    const hasMed = flags.some((f) => f.severity === "MEDIUM");
+    const hasHigh = approvedFlags.some((f) => f.severity === "HIGH");
+    const hasMed = approvedFlags.some((f) => f.severity === "MEDIUM");
 
     if (hasHigh) {
       overallRisk = "CATASTROPHIC";
-      summary = "CRITICAL: Deal-killing risks identified in uploaded strata/building reports.";
+      summary = "Critical risks identified from approved findings. Legal and technical review is required.";
     } else if (hasMed) {
       overallRisk = "MODERATE";
-      summary = "WARNING: Proceed with caution. Moderate issues found requiring legal/building review.";
+      summary = "Moderate risks identified from approved findings. Continue with legal and building checks.";
+    } else {
+      summary = "Low risk profile based on approved findings only.";
     }
 
-    // Extract high severity flags as deal killers
-    flags
+    approvedFlags
       .filter((f) => f.severity === "HIGH")
       .forEach((f) => {
         dealKillers.push(`[${f.category}] ${f.content}`);
       });
+  }
+
+  if (dealKillers.length === 0 && unreviewedFlags.length > 0) {
+    summary =
+      `${summary} Client-facing legal conclusions remain blocked until findings are reviewed.`;
   }
 
   // Create the report
@@ -2100,7 +2232,11 @@ export async function generateDealKillerReport(
     }
   );
 
-  return { report: savedReport, flagsCount: flags.length };
+  return {
+    report: savedReport,
+    flagsCount: approvedFlags.length,
+    pendingReviewCount: unreviewedFlags.length,
+  };
 }
 
 export async function ingestWhisperListing(
@@ -2191,4 +2327,127 @@ export async function ingestWhisperListing(
   );
 
   return { property, matchedClientIds };
+}
+
+export type MarketSniperSignal = {
+  id: string;
+  type: "COMMERCIAL" | "PLANNING" | "INFRASTRUCTURE" | "DEMOGRAPHIC";
+  title: string;
+  impact: "HIGH" | "MEDIUM" | "LOW";
+  dateReported: string;
+};
+
+export type MarketSniperReport = {
+  suburb: string;
+  state: string;
+  gentrificationScore: number; // 0-100
+  summary: string;
+  signals: MarketSniperSignal[];
+};
+
+export async function getSniperData(
+  session: SessionInput,
+  suburb: string,
+  state: string
+): Promise<MarketSniperReport> {
+  // Enforce auth
+  if (!session?.organizationId || !session?.user?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  // MOCK LOGIC for Micro-Market Sniper:
+  // We use deterministic hashing based on the suburb name to generate a realistic looking
+  // gentrification profile. In production, this would hit CDR, BCI Central, CoreLogic, etc.
+
+  const normalized = suburb.trim().toLowerCase();
+
+  // Seed random deterministically from string
+  let hash = 0;
+  for (let i = 0; i < normalized.length; i++) {
+    hash = normalized.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const randomizer = Math.abs(hash) % 100;
+
+  // Base score 40-98 based on hash
+  const score = 40 + (randomizer % 58);
+
+  const signals: MarketSniperSignal[] = [];
+
+  if (score > 80) {
+    signals.push({
+      id: `sig_${hash}_1`,
+      type: "COMMERCIAL",
+      title: "Extremely high commercial velocity: 4 new artisan cafes/wine bars registered in the last 90 days.",
+      impact: "HIGH",
+      dateReported: new Date(Date.now() - 14 * 86400000).toISOString(),
+    });
+    signals.push({
+      id: `sig_${hash}_2`,
+      type: "PLANNING",
+      title: "Council Development Application (DA) volume up 42% YoY for medium-density renovations.",
+      impact: "HIGH",
+      dateReported: new Date(Date.now() - 5 * 86400000).toISOString(),
+    });
+  } else if (score > 60) {
+    signals.push({
+      id: `sig_${hash}_3`,
+      type: "INFRASTRUCTURE",
+      title: "State government announced $45M upgrade to local transit corridor.",
+      impact: "HIGH",
+      dateReported: new Date(Date.now() - 30 * 86400000).toISOString(),
+    });
+    signals.push({
+      id: `sig_${hash}_4`,
+      type: "COMMERCIAL",
+      title: "First major organic grocer DA approved on main arterial road.",
+      impact: "MEDIUM",
+      dateReported: new Date(Date.now() - 10 * 86400000).toISOString(),
+    });
+  } else {
+    signals.push({
+      id: `sig_${hash}_5`,
+      type: "DEMOGRAPHIC",
+      title: "Slight uptick in average household income (+3% over precinct baseline).",
+      impact: "LOW",
+      dateReported: new Date(Date.now() - 60 * 86400000).toISOString(),
+    });
+  }
+
+  // Inject a standard infrastructure signal just to look rich
+  if (randomizer % 2 === 0) {
+    signals.push({
+      id: `sig_${hash}_6`,
+      type: "PLANNING",
+      title: "School zone boundary realignment proposed for upcoming calendar year.",
+      impact: "MEDIUM",
+      dateReported: new Date(Date.now() - 3 * 86400000).toISOString(),
+    });
+  }
+
+  let summary = "";
+  if (score >= 85) {
+    summary = `Hyper-gentrification detected. ${suburb} is showing extreme leading indicators of cultural and commercial shift before broad market pricing reflects it.`;
+  } else if (score >= 65) {
+    summary = `Emerging growth corridor. ${suburb} displays solid foundational infrastructure and commercial velocity indicating steady, above-average impending capital growth.`;
+  } else {
+    summary = `Stable or lagging market. ${suburb} is not currently exhibiting the leading indicators required for hyper-gentrification prediction.`;
+  }
+
+  // Write a synthetic audit trail so we track BA usage of this premium tool
+  await writeAuditLog({
+    organizationId: session.organizationId,
+    actorId: session.user.id,
+    action: "READ",
+    entityType: "MARKET_INTELLIGENCE",
+    entityId: `${normalized}-${state}`,
+    metadata: { message: "Generated Micro-Market Sniper prediction", score },
+  });
+
+  return {
+    suburb,
+    state,
+    gentrificationScore: score,
+    summary,
+    signals,
+  };
 }

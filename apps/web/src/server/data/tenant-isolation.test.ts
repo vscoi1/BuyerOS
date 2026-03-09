@@ -12,6 +12,12 @@ import {
     assignOffMarketSubmission,
     createPortalSession,
     createPortalFeedback,
+    registerDocumentUpload,
+    listDocuments,
+    getDocumentWithFlags,
+    extractDocumentRedFlags,
+    updateRedFlagStatus,
+    canAccessDocumentStorageKey,
 } from "./data-access";
 
 // Two completely separate tenants
@@ -28,6 +34,8 @@ describe("Tenant Isolation — cross-org bypass attempts (in-memory)", () => {
     let clientAId: string;
     let propertyAId: string;
     let submissionAId: string;
+    let documentAId: string;
+    let documentAStorageKey: string;
 
     // Create Org A's data before each test
     beforeEach(async () => {
@@ -61,6 +69,20 @@ describe("Tenant Isolation — cross-org bypass attempts (in-memory)", () => {
             postcode: "2026",
         });
         submissionAId = submissionA.id;
+
+        documentAStorageKey = `documents/test-${Date.now()}.pdf`;
+        await registerDocumentUpload(
+            sessionA,
+            {
+                propertyId: propertyAId,
+                fileName: "Contract.pdf",
+                mimeType: "application/pdf",
+                sizeBytes: 1024,
+            },
+            documentAStorageKey,
+        );
+        const docs = await listDocuments(sessionA, propertyAId);
+        documentAId = docs[0]!.id;
     });
 
     describe("Clients", () => {
@@ -159,6 +181,32 @@ describe("Tenant Isolation — cross-org bypass attempts (in-memory)", () => {
                     comment: "Injected by Org B",
                 }),
             ).rejects.toThrow("NOT_FOUND");
+        });
+    });
+
+    describe("Documents", () => {
+        it("listDocuments: Org B cannot list Org A documents", async () => {
+            const result = await listDocuments(sessionB, propertyAId);
+            expect(result).toEqual([]);
+        });
+
+        it("getDocumentWithFlags: Org B cannot read Org A document with flags", async () => {
+            const result = await getDocumentWithFlags(sessionB, documentAId);
+            expect(result).toBeNull();
+        });
+
+        it("canAccessDocumentStorageKey: Org B cannot get signed URL access to Org A document", async () => {
+            const allowed = await canAccessDocumentStorageKey(sessionB, documentAStorageKey);
+            expect(allowed).toBe(false);
+        });
+
+        it("updateRedFlagStatus: Org B cannot approve Org A document red flags", async () => {
+            const extracted = await extractDocumentRedFlags(sessionA, documentAId);
+            const targetFlag = extracted[0];
+            expect(targetFlag).toBeTruthy();
+
+            const result = await updateRedFlagStatus(sessionB, targetFlag!.id, "APPROVED");
+            expect(result).toBeNull();
         });
     });
 });

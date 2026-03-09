@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { PropertyCard } from "@/components/property/PropertyCard";
 import { ShieldAlert, AlertOctagon } from "lucide-react";
+import { AdvisoryNotice } from "@/components/compliance/AdvisoryNotice";
+import { SAFE_AI_COPY } from "@/lib/safe-ai";
 
 const stages = [
   "BRIEF",
@@ -258,6 +260,13 @@ export function PropertyWorkbench() {
           }}
         >
           <h2 className="text-base font-semibold">Due Diligence</h2>
+          <div className="mt-2">
+            <AdvisoryNotice
+              title={SAFE_AI_COPY.dueDiligence.title}
+              body={SAFE_AI_COPY.dueDiligence.body}
+              compact
+            />
+          </div>
           <div className="mt-3 grid gap-2">
             <select name="floodRisk" className="rounded border border-[var(--color-neutral-200)] px-2 py-2 text-sm" defaultValue="LOW">
               <option value="LOW">Flood Low</option>
@@ -305,6 +314,14 @@ export function PropertyWorkbench() {
 
         <div className="rounded-[var(--radius-lg)] border border-[var(--color-neutral-200)] bg-[var(--surface-0)] p-5 shadow-[var(--shadow-xs)] lg:col-span-1">
           <h2 className="text-base font-semibold">Documents & Red Flags</h2>
+          <div className="mt-2">
+            <AdvisoryNotice
+              title={SAFE_AI_COPY.redFlags.title}
+              body={SAFE_AI_COPY.redFlags.body}
+              tone="warning"
+              compact
+            />
+          </div>
 
           <form
             className="mt-3"
@@ -364,8 +381,8 @@ export function PropertyWorkbench() {
           {activeDocumentId && selectedPropertyId && (
             <div className="mt-6 border-t pt-4 animate-in fade-in slide-in-from-top-2 duration-300">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-red-600 flex items-center gap-1">
-                  <span>🚩</span> Red Flags: {activeDocument?.fileName}
+                <h3 className="text-sm font-semibold text-red-600">
+                  Red Flags: {activeDocument?.fileName}
                 </h3>
               </div>
 
@@ -393,21 +410,30 @@ export function PropertyWorkbench() {
               {generateDealKiller.isPending ? "Analyzing Risk..." : "Generate Risk Report"}
             </button>
           </div>
+          <AdvisoryNotice
+            title={SAFE_AI_COPY.dealKiller.title}
+            body={SAFE_AI_COPY.dealKiller.body}
+            tone="warning"
+            compact
+          />
 
           {generateDealKiller.data && (
-            <div className={`mt-4 rounded-lg p-5 border animate-in fade-in slide-in-from-top-2 duration-500 ${generateDealKiller.data.overallRisk === "CATASTROPHIC" ? "bg-red-50 border-red-200" : generateDealKiller.data.overallRisk === "HIGH" ? "bg-orange-50 border-orange-200" : "bg-green-50 border-green-200"}`}>
+            <div className={`mt-4 rounded-lg p-5 border animate-in fade-in slide-in-from-top-2 duration-500 ${generateDealKiller.data.report.overallRisk === "CATASTROPHIC" ? "bg-red-50 border-red-200" : generateDealKiller.data.report.overallRisk === "HIGH" ? "bg-orange-50 border-orange-200" : "bg-green-50 border-green-200"}`}>
               <div className="flex items-start gap-4 mb-3">
-                <span className={`px-3 py-1.5 rounded-full text-xs font-black uppercase whitespace-nowrap tracking-wider shadow-sm ${generateDealKiller.data.overallRisk === "CATASTROPHIC" ? "bg-red-600 text-white" : generateDealKiller.data.overallRisk === "HIGH" ? "bg-orange-500 text-white" : "bg-green-600 text-white"}`}>
-                  Risk: {generateDealKiller.data.overallRisk}
+                <span className={`px-3 py-1.5 rounded-full text-xs font-black uppercase whitespace-nowrap tracking-wider shadow-sm ${generateDealKiller.data.report.overallRisk === "CATASTROPHIC" ? "bg-red-600 text-white" : generateDealKiller.data.report.overallRisk === "HIGH" ? "bg-orange-500 text-white" : "bg-green-600 text-white"}`}>
+                  Risk: {generateDealKiller.data.report.overallRisk}
                 </span>
-                <p className="text-[15px] font-bold text-neutral-900 mt-1 leading-relaxed">{generateDealKiller.data.summary}</p>
+                <p className="text-[15px] font-bold text-neutral-900 mt-1 leading-relaxed">{generateDealKiller.data.report.summary}</p>
               </div>
+              <p className="text-xs text-neutral-600">
+                Approved findings: {generateDealKiller.data.flagsCount} · Pending review: {generateDealKiller.data.pendingReviewCount}
+              </p>
 
-              {generateDealKiller.data.dealKillers.length > 0 && (
+              {generateDealKiller.data.report.dealKillers.length > 0 && (
                 <div className="mt-6 space-y-3 border-t border-red-200/60 pt-5">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-red-800 flex items-center gap-1.5"><AlertOctagon className="w-4 h-4" /> Critical Red Flags (Deal Killers)</h4>
                   <ul className="list-none space-y-2 mt-3">
-                    {generateDealKiller.data.dealKillers.map((dk: string, i: number) => (
+                    {generateDealKiller.data.report.dealKillers.map((dk: string, i: number) => (
                       <li key={i} className="text-sm text-red-900 font-medium bg-white p-3.5 rounded border border-red-100 shadow-sm flex items-start gap-2.5">
                         <span className="text-red-500 mt-0.5">▪</span> {dk}
                       </li>

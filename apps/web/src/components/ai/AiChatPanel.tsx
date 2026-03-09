@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Send, Bot, Sparkles } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { useRouter } from "next/navigation";
+import { SAFE_AI_COPY } from "@/lib/safe-ai";
 
 interface Message {
     id: string;
@@ -27,7 +28,8 @@ export function AiChatPanel() {
         {
             id: "1",
             role: "assistant",
-            content: "Hi! I'm your BuyerOS Assistant. How can I help you today? You can ask me to find clients, properties, or navigate the platform.",
+            content:
+                "Hi! I'm your BuyerOS Assistant. I can help with platform workflows and data navigation. I cannot provide legal, financial, or credit advice.",
         },
     ]);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -114,7 +116,7 @@ export function AiChatPanel() {
                                 </div>
                                 <div>
                                     <h3 className="text-sm font-semibold">BuyerOS AI</h3>
-                                    <p className="text-[10px] text-indigo-100">Always online</p>
+                                    <p className="text-[10px] text-indigo-100">{SAFE_AI_COPY.assistant.title}</p>
                                 </div>
                             </div>
                             <button
@@ -123,6 +125,12 @@ export function AiChatPanel() {
                             >
                                 <X className="h-5 w-5" />
                             </button>
+                        </div>
+
+                        <div className="border-b border-slate-200 bg-slate-50 px-4 py-2">
+                            <p className="text-[10px] leading-relaxed text-slate-600">
+                                {SAFE_AI_COPY.assistant.body}
+                            </p>
                         </div>
 
                         {/* Messages */}

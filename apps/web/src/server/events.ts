@@ -3,6 +3,7 @@ export type DomainEventType =
   | "property.scored"
   | "due_diligence.completed"
   | "risk_flag.generated"
+  | "risk_flag.reviewed"
   | "off_market.received"
   | "client_update.pending_approval"
   | "compliance.checklist.updated"

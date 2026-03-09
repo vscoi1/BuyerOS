@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
+import { AdvisoryNotice } from "@/components/compliance/AdvisoryNotice";
+import { SAFE_AI_COPY } from "@/lib/safe-ai";
 
 export function BriefWorkbench() {
   const parseBrief = trpc.brief.parse.useMutation();
@@ -15,6 +17,19 @@ export function BriefWorkbench() {
       <p className="mt-1 text-sm text-[var(--color-neutral-500)]">
         Paste intake notes and parse structured buying criteria.
       </p>
+
+      <div className="mt-3 space-y-2">
+        <AdvisoryNotice
+          title={SAFE_AI_COPY.global.title}
+          body={SAFE_AI_COPY.global.body}
+          compact
+        />
+        <AdvisoryNotice
+          title={SAFE_AI_COPY.briefParser.title}
+          body={SAFE_AI_COPY.briefParser.body}
+          compact
+        />
+      </div>
 
       <textarea
         value={sourceText}

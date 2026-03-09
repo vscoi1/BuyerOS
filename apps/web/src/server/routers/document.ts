@@ -1,6 +1,7 @@
 import { protectedProcedure, router } from "@/lib/trpc/server";
+import { TRPCError } from "@trpc/server";
 import { writeAuditLog } from "@/server/audit";
-import { registerDocumentUpload } from "@/server/data/data-access";
+import { canAccessDocumentStorageKey, registerDocumentUpload } from "@/server/data/data-access";
 import { getSignedReadUrl, initiateDocumentUpload } from "@/server/services/documents";
 import { documentSignedUrlInput, documentUploadInitiateInput } from "@/server/validators";
 
@@ -22,9 +23,20 @@ export const documentRouter = router({
     }),
   }),
 
-  // TODO(P1.3): enforce document ownership once Document table has tenant scope.
-  // Currently any authenticated user can request a signed URL for any storageKey.
-  getSignedUrl: protectedProcedure.input(documentSignedUrlInput).query(({ input }) => {
+  getSignedUrl: protectedProcedure.input(documentSignedUrlInput).query(async ({ ctx, input }) => {
+    const allowed = await canAccessDocumentStorageKey(ctx.session, input.storageKey);
+    if (!allowed) {
+      throw new TRPCError({ code: "FORBIDDEN" });
+    }
+
+    writeAuditLog({
+      organizationId: ctx.session.organizationId,
+      actorId: ctx.session.user.id,
+      action: "document.read.signed_url",
+      entityType: "document",
+      entityId: input.storageKey,
+    });
+
     return getSignedReadUrl(input);
   }),
 });
