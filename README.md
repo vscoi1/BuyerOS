@@ -5,7 +5,7 @@ BuyerOS is an AU-first buyers-agent operating system built with Next.js, tRPC, P
 ## Run locally
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -27,6 +27,8 @@ BuyerOS supports two modes:
 ```bash
 SUPABASE_DATABASE_URL="postgresql://..."
 DATABASE_URL="$SUPABASE_DATABASE_URL"
+DEMO_AUTH_ENABLED=true
+NEXT_PUBLIC_DEMO_AUTH_ENABLED=true
 ```
 
 4. Generate Prisma client and run migrations:
@@ -93,6 +95,30 @@ If you only need a showcase deployment:
 3. Deploy
 
 The app will boot in seeded in-memory demo mode automatically.
+
+## Auth mode configuration
+
+BuyerOS currently ships with **demo auth** for showcase workflows.
+
+- `DEMO_AUTH_ENABLED=true` enables demo login server-side.
+- `NEXT_PUBLIC_DEMO_AUTH_ENABLED=true` mirrors that mode in the login UI.
+
+Production recommendation:
+- set both to `false`,
+- replace demo auth with your identity provider before going live.
+
+Client portal session cookie:
+- `PORTAL_SESSION_COOKIE_NAME` (default: `buyeros-portal-session`)
+
+## Client portal flow
+
+- Agent generates access from `/clients`.
+- Share URL with client: `/portal/access/<token>`.
+- Client lands in a client-scoped portal session and can:
+  - view their shortlist and milestones,
+  - upload documents for their own properties,
+  - submit shortlist feedback,
+  - view indicative current value and 10-year projection.
 
 ## Verification
 

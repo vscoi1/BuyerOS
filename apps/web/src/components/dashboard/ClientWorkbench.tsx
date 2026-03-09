@@ -217,14 +217,26 @@ export function ClientWorkbench() {
             </button>
           </div>
           {createPortalSession.data ? (
-            <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
-              Standard token: {createPortalSession.data.token} (expires {new Date(createPortalSession.data.expiresAt).toLocaleString("en-AU")})
-            </p>
+            <div className="mt-2 space-y-1 text-xs text-[var(--color-neutral-500)]">
+              <p>
+                Standard token: {createPortalSession.data.token} (expires{" "}
+                {new Date(createPortalSession.data.expiresAt).toLocaleString("en-AU")})
+              </p>
+              <p>
+                Client URL: <code>/portal/access/{createPortalSession.data.token}</code>
+              </p>
+            </div>
           ) : null}
           {createOneTimePortalSession.data ? (
-            <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
-              One-time token: {createOneTimePortalSession.data.token} (expires {new Date(createOneTimePortalSession.data.expiresAt).toLocaleString("en-AU")})
-            </p>
+            <div className="mt-2 space-y-1 text-xs text-[var(--color-neutral-500)]">
+              <p>
+                One-time token: {createOneTimePortalSession.data.token} (expires{" "}
+                {new Date(createOneTimePortalSession.data.expiresAt).toLocaleString("en-AU")})
+              </p>
+              <p>
+                One-time URL: <code>/portal/access/{createOneTimePortalSession.data.token}</code>
+              </p>
+            </div>
           ) : null}
           {rotatePortalSession.data ? (
             <p className="mt-2 text-xs text-[var(--color-neutral-500)]">

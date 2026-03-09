@@ -119,6 +119,12 @@ export const portalFeedbackInput = z.object({
   comment: z.string().max(1000).optional(),
 });
 
+export const portalFeedbackByClientInput = z.object({
+  propertyId: z.string().min(3),
+  status: z.enum(["INTERESTED", "NOT_INTERESTED", "REQUEST_INFO"]),
+  comment: z.string().max(1000).optional(),
+});
+
 export const documentUploadInitiateInput = z.object({
   propertyId: z.string().min(3),
   fileName: z.string().min(2).max(200),

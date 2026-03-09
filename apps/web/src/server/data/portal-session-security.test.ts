@@ -37,7 +37,13 @@ describe("Portal session security", () => {
     const rotatedResult = await resolvePortalSession(rotated.token);
 
     expect(oldResult).toBeNull();
-    expect(rotatedResult).toEqual({ clientId: client.id });
+    expect(rotatedResult).toEqual(
+      expect.objectContaining({
+        clientId: client.id,
+        organizationId: session.organizationId,
+        agentId: session.user.id,
+      }),
+    );
   });
 
   it("consumes one-time token after first successful resolve", async () => {
@@ -52,7 +58,13 @@ describe("Portal session security", () => {
     const firstResolve = await resolvePortalSession(oneTime.token);
     const secondResolve = await resolvePortalSession(oneTime.token);
 
-    expect(firstResolve).toEqual({ clientId: client.id });
+    expect(firstResolve).toEqual(
+      expect.objectContaining({
+        clientId: client.id,
+        organizationId: session.organizationId,
+        agentId: session.user.id,
+      }),
+    );
     expect(secondResolve).toBeNull();
   });
 });

@@ -146,6 +146,32 @@ export type PersistedComplianceChecklist = {
   updatedAt: string;
 };
 
+export interface PortalSessionContext {
+  organizationId: string;
+  agentId: string;
+  clientId: string;
+}
+
+export type PortalClientProfile = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  organizationId: string;
+  agentId: string;
+};
+
+export type PortalPortfolioProjection = {
+  propertyId: string;
+  address: string;
+  suburb: string;
+  state: string;
+  baseValue: number;
+  currentValue: number;
+  projectedValue10Y: number;
+  assumedAnnualGrowthPct: number;
+};
+
 async function ensureActor(prisma: PrismaClient, session: SessionInput): Promise<void> {
   await prisma.organization.upsert({
     where: { id: session.organizationId },
@@ -191,6 +217,23 @@ async function runWithFallback<T>(
     return await persistent(prisma);
   } catch (error) {
     console.error("Persistence fallback to in-memory store", error);
+    return await memory();
+  }
+}
+
+async function runPortalWithFallback<T>(
+  persistent: (prisma: PrismaClient) => Promise<T>,
+  memory: () => T | Promise<T>,
+): Promise<T> {
+  const prisma = getPrismaClient();
+  if (!prisma) {
+    return await memory();
+  }
+
+  try {
+    return await persistent(prisma);
+  } catch (error) {
+    console.error("Portal persistence fallback to in-memory store", error);
     return await memory();
   }
 }
@@ -1197,7 +1240,15 @@ async function hashToken(token: string): Promise<string> {
  */
 const portalSessionMemory = new Map<
   string,
-  { clientId: string; tokenHash: string; expiresAt: string; revokedAt?: string; oneTime: boolean }
+  {
+    clientId: string;
+    organizationId: string;
+    agentId: string;
+    tokenHash: string;
+    expiresAt: string;
+    revokedAt?: string;
+    oneTime: boolean;
+  }
 >();
 
 function normalisePortalSessionInput(input: string | PortalSessionCreate): Required<PortalSessionCreate> {
@@ -1292,12 +1343,104 @@ export async function createPortalSession(
 
       portalSessionMemory.set(tokenHash, {
         clientId: payload.clientId,
+        organizationId: session.organizationId,
+        agentId: session.user.id,
         tokenHash,
         expiresAt: expiresAt.toISOString(),
         oneTime: payload.oneTime,
       });
       return {
         clientId: payload.clientId,
+        token: plainToken,
+        expiresAt: expiresAt.toISOString(),
+        oneTime: payload.oneTime,
+      };
+    },
+  );
+}
+
+export async function issuePortalSessionForClient(
+  portalContext: PortalSessionContext,
+  input?: { ttlHours?: number; oneTime?: boolean; rotateExisting?: boolean },
+): Promise<{ clientId: string; token: string; expiresAt: string; oneTime: boolean }> {
+  const payload = {
+    ttlHours: input?.ttlHours ?? 24 * 7,
+    oneTime: input?.oneTime ?? false,
+    rotateExisting: input?.rotateExisting ?? false,
+  };
+  const plainToken = `${payload.oneTime ? "ot" : "st"}_${crypto.randomUUID()}`;
+  const tokenHash = await hashToken(plainToken);
+  const expiresAt = new Date(Date.now() + payload.ttlHours * 60 * 60 * 1000);
+
+  return runPortalWithFallback(
+    async (prisma) => {
+      const client = await prisma.client.findFirst({
+        where: {
+          id: portalContext.clientId,
+          organizationId: portalContext.organizationId,
+          agentId: portalContext.agentId,
+        },
+      });
+      if (!client) {
+        throw new Error("NOT_FOUND");
+      }
+
+      if (payload.rotateExisting) {
+        await (prisma.portalSession.updateMany as unknown as (args: {
+          where: object;
+          data: { revokedAt: Date };
+        }) => Promise<{ count: number }>)({
+          where: { clientId: client.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      await prisma.portalSession.create({
+        data: {
+          clientId: client.id,
+          tokenHash,
+          expiresAt,
+        },
+      });
+
+      return {
+        clientId: client.id,
+        token: plainToken,
+        expiresAt: expiresAt.toISOString(),
+        oneTime: payload.oneTime,
+      };
+    },
+    () => {
+      const client = db.clients.find(
+        (row) =>
+          row.id === portalContext.clientId &&
+          row.organizationId === portalContext.organizationId &&
+          row.agentId === portalContext.agentId,
+      );
+      if (!client) {
+        throw new Error("NOT_FOUND");
+      }
+
+      if (payload.rotateExisting) {
+        const now = new Date().toISOString();
+        for (const [hash, record] of portalSessionMemory.entries()) {
+          if (record.clientId === client.id && !record.revokedAt) {
+            portalSessionMemory.set(hash, { ...record, revokedAt: now });
+          }
+        }
+      }
+
+      portalSessionMemory.set(tokenHash, {
+        clientId: client.id,
+        organizationId: client.organizationId,
+        agentId: client.agentId,
+        tokenHash,
+        expiresAt: expiresAt.toISOString(),
+        oneTime: payload.oneTime,
+      });
+
+      return {
+        clientId: client.id,
         token: plainToken,
         expiresAt: expiresAt.toISOString(),
         oneTime: payload.oneTime,
@@ -1313,22 +1456,35 @@ export async function createPortalSession(
  */
 export async function resolvePortalSession(
   plainToken: string,
-): Promise<{ clientId: string } | null> {
+): Promise<PortalSessionContext | null> {
   const tokenHash = await hashToken(plainToken);
   const isOneTimeToken = plainToken.startsWith("ot_");
   const prisma = getPrismaClient();
 
   if (prisma) {
     try {
-      const row = await prisma.portalSession.findUnique({ where: { tokenHash } }) as {
+      const row = await prisma.portalSession.findUnique({
+        where: { tokenHash },
+        include: {
+          client: {
+            select: {
+              id: true,
+              organizationId: true,
+              agentId: true,
+            },
+          },
+        },
+      }) as {
         clientId: string;
         tokenHash: string;
         expiresAt: Date;
         revokedAt: Date | null;
+        client: { id: string; organizationId: string; agentId: string } | null;
       } | null;
       if (!row) return null;
       if (row.revokedAt) return null;          // revoked
       if (row.expiresAt < new Date()) return null; // expired
+      if (!row.client) return null;
 
       if (isOneTimeToken) {
         await (prisma.portalSession.updateMany as unknown as (args: {
@@ -1339,7 +1495,11 @@ export async function resolvePortalSession(
           data: { revokedAt: new Date() },
         });
       }
-      return { clientId: row.clientId };
+      return {
+        clientId: row.client.id,
+        organizationId: row.client.organizationId,
+        agentId: row.client.agentId,
+      };
     } catch (err) {
       console.error("[portal] resolvePortalSession DB error:", err);
     }
@@ -1356,7 +1516,11 @@ export async function resolvePortalSession(
       revokedAt: new Date().toISOString(),
     });
   }
-  return { clientId: record.clientId };
+  return {
+    clientId: record.clientId,
+    organizationId: record.organizationId,
+    agentId: record.agentId,
+  };
 }
 
 /**
@@ -1459,6 +1623,259 @@ export async function listPortalMilestones(
           updatedAt: property.createdAt,
         })),
   );
+}
+
+export async function getPortalClientProfile(
+  portalContext: PortalSessionContext,
+): Promise<PortalClientProfile | null> {
+  return runPortalWithFallback(
+    async (prisma) => {
+      const row = await prisma.client.findFirst({
+        where: {
+          id: portalContext.clientId,
+          organizationId: portalContext.organizationId,
+          agentId: portalContext.agentId,
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          organizationId: true,
+          agentId: true,
+        },
+      });
+      if (!row) return null;
+      return row;
+    },
+    () => {
+      const row = db.clients.find(
+        (client) =>
+          client.id === portalContext.clientId &&
+          client.organizationId === portalContext.organizationId &&
+          client.agentId === portalContext.agentId,
+      );
+      if (!row) return null;
+      return {
+        id: row.id,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        organizationId: row.organizationId,
+        agentId: row.agentId,
+      };
+    },
+  );
+}
+
+export async function listPortalShortlistForClient(
+  portalContext: PortalSessionContext,
+): Promise<PersistedProperty[]> {
+  return runPortalWithFallback(
+    async (prisma) => {
+      const rows = await prisma.property.findMany({
+        where: {
+          organizationId: portalContext.organizationId,
+          clientId: portalContext.clientId,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      return rows.map(mapPropertyRecord);
+    },
+    () =>
+      db.properties.filter(
+        (property) =>
+          property.organizationId === portalContext.organizationId &&
+          property.clientId === portalContext.clientId,
+      ),
+  );
+}
+
+export async function listPortalMilestonesForClient(
+  portalContext: PortalSessionContext,
+): Promise<Array<{ propertyId: string; address: string; stage: string; updatedAt: string }>> {
+  const shortlist = await listPortalShortlistForClient(portalContext);
+  return shortlist.map((property) => ({
+    propertyId: property.id,
+    address: property.address,
+    stage: property.stage,
+    updatedAt: property.createdAt,
+  }));
+}
+
+export async function createPortalFeedbackForClient(
+  portalContext: PortalSessionContext,
+  input: Omit<PortalFeedback, "clientId">,
+): Promise<PortalFeedback & { createdAt: string }> {
+  return runPortalWithFallback(
+    async (prisma) => {
+      const property = await prisma.property.findFirst({
+        where: {
+          id: input.propertyId,
+          organizationId: portalContext.organizationId,
+          clientId: portalContext.clientId,
+        },
+      });
+      if (!property) {
+        throw new Error("NOT_FOUND");
+      }
+
+      const row = await prisma.portalFeedback.create({
+        data: {
+          clientId: portalContext.clientId,
+          propertyId: input.propertyId,
+          status: input.status,
+          comment: input.comment,
+        },
+      });
+
+      return {
+        clientId: row.clientId,
+        propertyId: row.propertyId,
+        status: row.status as "INTERESTED" | "NOT_INTERESTED" | "REQUEST_INFO",
+        comment: row.comment ?? undefined,
+        createdAt: row.createdAt.toISOString(),
+      };
+    },
+    () => {
+      const propertyExists = db.properties.some(
+        (p) =>
+          p.id === input.propertyId &&
+          p.organizationId === portalContext.organizationId &&
+          p.clientId === portalContext.clientId,
+      );
+      if (!propertyExists) {
+        throw new Error("NOT_FOUND");
+      }
+      const feedback = {
+        clientId: portalContext.clientId,
+        propertyId: input.propertyId,
+        status: input.status,
+        comment: input.comment,
+        createdAt: new Date().toISOString(),
+      };
+      db.portalFeedback.unshift(feedback);
+      return feedback;
+    },
+  );
+}
+
+export async function registerPortalDocumentUpload(
+  portalContext: PortalSessionContext,
+  input: DocumentUploadInitiate,
+  storageKey: string,
+): Promise<void> {
+  await runPortalWithFallback(
+    async (prisma) => {
+      const property = await prisma.property.findFirst({
+        where: {
+          id: input.propertyId,
+          organizationId: portalContext.organizationId,
+          clientId: portalContext.clientId,
+        },
+      });
+      if (!property) {
+        throw new Error("NOT_FOUND");
+      }
+      await prisma.document.create({
+        data: {
+          propertyId: input.propertyId,
+          fileName: input.fileName,
+          storageKey,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          status: "PENDING",
+        },
+      });
+    },
+    () => {
+      const property = db.properties.find(
+        (row) =>
+          row.id === input.propertyId &&
+          row.organizationId === portalContext.organizationId &&
+          row.clientId === portalContext.clientId,
+      );
+      if (!property) {
+        throw new Error("NOT_FOUND");
+      }
+
+      db.documents.push({
+        id: crypto.randomUUID(),
+        propertyId: input.propertyId,
+        fileName: input.fileName,
+        storageKey,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        status: "PENDING",
+        uploadedAt: new Date().toISOString(),
+      });
+    },
+  );
+}
+
+export async function listPortalDocumentsForClient(
+  portalContext: PortalSessionContext,
+): Promise<PersistedDocument[]> {
+  return runPortalWithFallback(
+    async (prisma) => {
+      const rows = await prisma.document.findMany({
+        where: {
+          property: {
+            organizationId: portalContext.organizationId,
+            clientId: portalContext.clientId,
+          },
+        },
+        orderBy: { uploadedAt: "desc" },
+      });
+      return rows.map((row) => ({
+        ...row,
+        status: row.status as PersistedDocument["status"],
+        uploadedAt: row.uploadedAt.toISOString(),
+      }));
+    },
+    () => {
+      const propertyIds = db.properties
+        .filter(
+          (row) =>
+            row.organizationId === portalContext.organizationId &&
+            row.clientId === portalContext.clientId,
+        )
+        .map((row) => row.id);
+
+      return db.documents.filter((row) => propertyIds.includes(row.propertyId));
+    },
+  );
+}
+
+export async function listPortalPortfolioProjection(
+  portalContext: PortalSessionContext,
+): Promise<PortalPortfolioProjection[]> {
+  const shortlist = await listPortalShortlistForClient(portalContext);
+  const yearMs = 365 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  return shortlist.map((property) => {
+    const baseValue = property.price ?? 750_000;
+    const propertyAgeYears = Math.max(
+      0,
+      Math.min(2, (now - new Date(property.createdAt).getTime()) / yearMs),
+    );
+    const assumedAnnualGrowthPct = property.state === "NSW" ? 5.1 : 4.8;
+    const annualRate = assumedAnnualGrowthPct / 100;
+    const currentValue = Math.round(baseValue * Math.pow(1 + annualRate, propertyAgeYears));
+    const projectedValue10Y = Math.round(currentValue * Math.pow(1 + annualRate, 10));
+
+    return {
+      propertyId: property.id,
+      address: property.address,
+      suburb: property.suburb,
+      state: property.state,
+      baseValue,
+      currentValue,
+      projectedValue10Y,
+      assumedAnnualGrowthPct,
+    };
+  });
 }
 
 export async function createPortalFeedback(

@@ -1,15 +1,25 @@
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "@/lib/trpc/server";
+import { portalClientProcedure, protectedProcedure, router } from "@/lib/trpc/server";
 import { writeAuditLog } from "@/server/audit";
 import {
   createPortalFeedback,
+  createPortalFeedbackForClient,
   createPortalSession,
+  getPortalClientProfile,
   listPortalMilestones,
+  listPortalMilestonesForClient,
+  listPortalPortfolioProjection,
   listPortalShortlist,
+  listPortalShortlistForClient,
+  listPortalDocumentsForClient,
+  registerPortalDocumentUpload,
   revokePortalSession,
 } from "@/server/data/data-access";
 import { emitEvent } from "@/server/events";
+import { initiateDocumentUpload } from "@/server/services/documents";
 import {
+  documentUploadInitiateInput,
+  portalFeedbackByClientInput,
   portalFeedbackInput,
   portalSessionClientInput,
   portalSessionCreateInput,
@@ -127,6 +137,77 @@ export const portalRouter = router({
         });
 
         return { revoked: true };
+      }),
+  }),
+
+  client: router({
+    me: portalClientProcedure.query(async ({ ctx }) => {
+      return getPortalClientProfile(ctx.portalClient);
+    }),
+
+    shortlist: portalClientProcedure.query(async ({ ctx }) => {
+      return listPortalShortlistForClient(ctx.portalClient);
+    }),
+
+    milestones: portalClientProcedure.query(async ({ ctx }) => {
+      return listPortalMilestonesForClient(ctx.portalClient);
+    }),
+
+    documents: router({
+      list: portalClientProcedure.query(async ({ ctx }) => {
+        return listPortalDocumentsForClient(ctx.portalClient);
+      }),
+      upload: portalClientProcedure
+        .input(documentUploadInitiateInput)
+        .mutation(async ({ ctx, input }) => {
+          const initiated = initiateDocumentUpload(input);
+          try {
+            await registerPortalDocumentUpload(ctx.portalClient, input, initiated.storageKey);
+          } catch (error) {
+            if (error instanceof Error && error.message === "NOT_FOUND") {
+              throw new TRPCError({ code: "FORBIDDEN" });
+            }
+            throw error;
+          }
+
+          writeAuditLog({
+            organizationId: ctx.portalClient.organizationId,
+            actorId: `portal:${ctx.portalClient.clientId}`,
+            action: "portal.client.document.upload.initiate",
+            entityType: "property",
+            entityId: input.propertyId,
+          });
+
+          return initiated;
+        }),
+    }),
+
+    portfolio: router({
+      projection10Y: portalClientProcedure.query(async ({ ctx }) => {
+        return listPortalPortfolioProjection(ctx.portalClient);
+      }),
+    }),
+
+    feedback: portalClientProcedure
+      .input(portalFeedbackByClientInput)
+      .mutation(async ({ ctx, input }) => {
+        const feedback = await createPortalFeedbackForClient(ctx.portalClient, input);
+
+        writeAuditLog({
+          organizationId: ctx.portalClient.organizationId,
+          actorId: `portal:${ctx.portalClient.clientId}`,
+          action: "portal.client.feedback.submit",
+          entityType: "property",
+          entityId: input.propertyId,
+        });
+
+        emitEvent(ctx.portalClient.organizationId, "client_update.pending_approval", {
+          clientId: ctx.portalClient.clientId,
+          propertyId: input.propertyId,
+          status: input.status,
+        });
+
+        return feedback;
       }),
   }),
 
